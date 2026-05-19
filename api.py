@@ -38,7 +38,8 @@ def obtener_telemetria():
             df['timestamp_lectura'] = df['timestamp_lectura'].astype(str)
 
 
-        df = df.replace({np.nan: None})
+        # Elimina cualquier registro que contenga al menos un valor nulo/vacío
+        df = df.dropna()
             
         # Transformar el DataFrame a un formato JSON compatible con la API
         datos = df.to_dict(orient="records")

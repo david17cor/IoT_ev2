@@ -6,27 +6,41 @@ import time
 # Configuración inicial de la página
 st.set_page_config(page_title="DataOps Monitor", layout="wide")
 
-# Inyección de CSS para diseño profesional y aumento del tamaño de tablas
+# Inyección de CSS: Tema "Dark Corporate Slate"
 st.markdown("""
     <style>
-        /* Fondo corporativo sutil */
+        /* Fondo corporativo oscuro (Slate) */
         .stApp {
-            background-color: #f8f9fa;
+            background-color: #0F172A;
         }
-        /* Aumento del tamaño de fuente general y de las tablas */
-        html, body, [class*="css"] {
-            font-size: 16px !important;
+        /* Textos principales en gris claro para contraste óptimo y sin fatiga visual */
+        .stApp, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp span {
+            color: #F8FAFC !important;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
         }
-        /* Contenedores de DataFrames con borde sutil */
+        /* Suavizar la línea separadora */
+        hr {
+            border-color: #334155 !important;
+        }
+        /* Contenedores de DataFrames con bordes sutiles */
         [data-testid="stDataFrame"] {
-            border: 1px solid #dee2e6;
-            border-radius: 4px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border: 1px solid #1E293B;
+            border-radius: 6px;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.4);
         }
-        /* Ajuste de color para los textos descriptivos */
-        .stMarkdown caption {
-            color: #6c757d !important;
+        /* Ajuste de color para los textos descriptivos inferiores */
+        div[data-testid="caption"] {
+            color: #94A3B8 !important;
             font-size: 14px !important;
+            margin-top: 10px;
+        }
+        /* Estilización de la métrica superior */
+        label[data-testid="stMetricLabel"] > div {
+            color: #94A3B8 !important;
+            font-weight: 600;
+        }
+        div[data-testid="stMetricValue"] > div {
+            color: #38BDF8 !important; /* Azul técnico para resaltar el número */
         }
     </style>
 """, unsafe_allow_html=True)
@@ -44,7 +58,6 @@ while True:
         # Consumir la API
         response = requests.get(API_URL).json()
         
-        # Mover el contenedor al inicio del flujo para que limpie la pantalla en cada ciclo
         with placeholder.container():
             if response.get("success") and response.get("data"):
                 data_limpia = response["data"]
@@ -68,22 +81,20 @@ while True:
                             df_sucio.loc[0, 'temperatura'] = -999.0
                             df_sucio.loc[2, 'temperatura'] = -999.0
                     
-                    # Se muestran los datos con un height fijo para igualar tamaños visuales
                     st.dataframe(df_sucio[['timestamp_lectura', 'id_maquina', 'rpm', 'temperatura']], use_container_width=True, height=400)
-                    st.caption("Problemas detectados: Formatos incorrectos (comas), nombres con espacios en blanco y picos de temperatura atípicos (-999.0).")
+                    st.caption("Problemas detectados: Formatos incorrectos, espacios en blanco y valores atípicos.")
 
                 with col_despues:
                     st.success("DESPUÉS: Datos Curados y Seguros (DataOps + Ley 19.628)")
                     
-                    # Mostrar datos procesados
                     st.dataframe(df_limpio, use_container_width=True, height=400)
-                    st.caption("Soluciones aplicadas: Tipado estandarizado, remoción de anomalías, RUT enmascarado y Hashing SHA-256 para anonimización.")
+                    st.caption("Soluciones aplicadas: Tipado estandarizado, remoción de anomalías y Hashing SHA-256 para anonimización.")
             else:
-                st.warning("La API respondió con éxito, pero la tabla 'telemetria_limpia' en PostgreSQL no tiene registros actualmente.")
-                st.info("Sugerencia de sistema: Verificar la ejecución del script del Consumidor Kafka y la inserción de filas en la base de datos.")
+                st.warning("La API respondió con éxito, pero la tabla en PostgreSQL no tiene registros actualmente.")
+                st.info("Sugerencia: Verificar el estado del Consumidor Kafka y la base de datos.")
                 
     except Exception as e:
         with placeholder.container():
-            st.info("Conectando con la API REST en el puerto 8000... Verificando estado del servicio api.py")
+            st.info("Conectando con la API REST en el puerto 8000... Verificando estado del servicio.")
         
     time.sleep(2)
