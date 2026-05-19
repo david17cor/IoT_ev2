@@ -2,8 +2,18 @@ import json
 import hashlib
 from datetime import datetime
 from kafka import KafkaConsumer
+import pandas as pd
+from sqlalchemy import create_engine
 
-# Configurar el Consumidor de Kafka
+# 1. Configurar la conexión a PostgreSQL con SQLAlchemy
+# Reutilizamos las credenciales y el puerto mapeado en Docker
+try:
+    engine = create_engine('postgresql://admin_dataops:password_seguro_123@localhost:5434/iot_predictivo')
+    print("💾 Conexión a PostgreSQL inicializada correctamente.")
+except Exception as e:
+    print(f"❌ Error al conectar a la Base de Datos: {e}")
+
+# 2. Configurar el Consumidor de Kafka
 consumer = KafkaConsumer(
     'telemetria_sucia',
     bootstrap_servers=['localhost:29092'],
@@ -17,19 +27,21 @@ def aplicar_hashing(texto):
 def enmascarar_rut(rut):
     return "XX.XXX.XX" + rut[-3:]
 
-print("🟢 Consumidor DataOps LISTO. Esperando datos para limpiar en tiempo real...\n")
+print("🟢 Consumidor DataOps LISTO. Esperando datos para limpiar e insertar en vivo...\n")
 
 for mensaje in consumer:
     dato_sucio = mensaje.value
+    
+    # Este diccionario DEBE tener las llaves con los mismos nombres exactos de las columnas en DBeaver
     dato_limpio = {}
     
     try:
         # 1. Limpieza de Formato: Arreglar Fechas al estándar ISO
         fecha_obj = datetime.strptime(dato_sucio["timestamp_lectura"], "%d/%m/%Y %H:%M:%S")
-        dato_limpio["timestamp"] = fecha_obj.isoformat()
+        dato_limpio["timestamp_lectura"] = fecha_obj.isoformat()
         
-        # 2. Limpieza Estructural: Estandarizar nombre de máquina
-        dato_limpio["machine_id"] = str(dato_sucio["ID_Maquina"]).upper()
+        # 2. Limpieza Estructural: Estandarizar nombre de máquina a minúsculas para mantener consistencia con la API
+        dato_limpio["id_maquina"] = str(dato_sucio["ID_Maquina"]).lower()
         
         # 3. Limpieza de Formato: Arreglar comas en números y convertir a Float
         if isinstance(dato_sucio["Revoluciones_RPM"], str):
@@ -41,25 +53,33 @@ for mensaje in consumer:
         # 4. Limpieza Semántica: Filtrar temperaturas imposibles
         temp = float(dato_sucio["Temp_C"])
         if temp < 0 or temp > 300:
-            dato_limpio["temperatura_motor"] = None # O reemplazar por el promedio móvil (Imputación)
+            dato_limpio["temperatura"] = None  # Al ser FLOAT en Postgres, None se guardará como NULL correctamente
             anomalia_detectada = True
         else:
-            dato_limpio["temperatura_motor"] = temp
+            dato_limpio["temperatura"] = temp
             anomalia_detectada = False
             
         # 5. Seguridad PII (Cumplimiento Ley 19.628)
-        nombre_limpio = dato_sucio["Nombre_Operador"].strip().title() # Quita espacios y capitaliza bien
-        dato_limpio["operador_hash"] = aplicar_hashing(nombre_limpio)
-        dato_limpio["rut_mask"] = enmascarar_rut(dato_sucio["rut_op"])
+        # Mantenemos la lógica de negocio intacta para op_id
+        dato_limpio["op_id"] = dato_sucio["op_id"]
         
-        # --- IMPRESIÓN PARA LA DEMO ---
-        estado_temp = "⚠️ DESCARTADA (-999)" if anomalia_detectada else f"{dato_limpio['temperatura_motor']}°C"
+        nombre_limpio = dato_sucio["Nombre_Operador"].strip().title()
+        dato_limpio["nombre_operador"] = aplicar_hashing(nombre_limpio)
+        dato_limpio["rut_op"] = enmascarar_rut(dato_sucio["rut_op"])
         
-        print("-" * 50)
-        print(f"📥 RECIBIDO (Sucio): RPM='{dato_sucio['Revoluciones_RPM']}' | Temp={dato_sucio['Temp_C']} | Op='{dato_sucio['Nombre_Operador']}'")
-        print(f"✨ PROCESADO (Limpio): RPM={dato_limpio['rpm']} | Temp={estado_temp} | RUT={dato_limpio['rut_mask']}")
+        # --- 6. INSERCIÓN EN TIEMPO REAL A POSTGRESQL ---
+        # Convertimos el diccionario limpio en un DataFrame de 1 sola fila
+        df_insert = pd.DataFrame([dato_limpio])
         
-        # Aquí iría el INSERT a PostgreSQL del dato_limpio
+        # 'append' agrega la fila al final de la tabla 'telemetria_limpia' existente
+        df_insert.to_sql('telemetria_limpia', engine, if_exists='append', index=False)
+        
+        # --- IMPRESIÓN DE DIAGNÓSTICO EN CONSOLA ---
+        estado_temp = "⚠️ DESCARTADA (-999)" if anomalia_detectada else f"{dato_limpio['temperatura']}°C"
+        
+        print("-" * 60)
+        print(f"📥 RECIBIDO -> RPM: '{dato_sucio['Revoluciones_RPM']}' | Temp: {dato_sucio['Temp_C']}")
+        print(f"💾 GUARDADO -> RPM: {dato_limpio['rpm']} | Temp: {estado_temp} | Tabla: 'telemetria_limpia'")
         
     except Exception as e:
-        print(f"❌ Error procesando el mensaje: {e}")
+        print(f"❌ Error procesando o guardando el mensaje: {e}")
