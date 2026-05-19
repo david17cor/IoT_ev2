@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 import pandas as pd
 import sqlalchemy
+import numpy as np
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -35,6 +36,9 @@ def obtener_telemetria():
         # Convertir el timestamp a string para evitar problemas de serialización JSON
         if 'timestamp_lectura' in df.columns:
             df['timestamp_lectura'] = df['timestamp_lectura'].astype(str)
+
+
+        df = df.replace({np.nan: None})
             
         # Transformar el DataFrame a un formato JSON compatible con la API
         datos = df.to_dict(orient="records")
