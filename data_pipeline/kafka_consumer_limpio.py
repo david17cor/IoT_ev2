@@ -1,14 +1,26 @@
 import json
 import hashlib
+import os
 from datetime import datetime
 from kafka import KafkaConsumer
 import pandas as pd
 from sqlalchemy import create_engine
+from dotenv import load_dotenv
 
-# 1. Configurar la conexión a PostgreSQL con SQLAlchemy
-# Reutilizamos las credenciales y el puerto mapeado en Docker
+# Cargar variables de entorno
+load_dotenv()
+
+# 1. Configurar la conexión a PostgreSQL con SQLAlchemy de forma segura
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+DB_NAME = os.getenv("DB_NAME")
+
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
 try:
-    engine = create_engine('postgresql://admin_dataops:password_seguro_123@localhost:5434/iot_predictivo')
+    engine = create_engine(DATABASE_URL)
     print("💾 Conexión a PostgreSQL inicializada correctamente.")
 except Exception as e:
     print(f"❌ Error al conectar a la Base de Datos: {e}")

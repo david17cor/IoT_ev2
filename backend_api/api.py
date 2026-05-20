@@ -2,6 +2,8 @@ from fastapi import FastAPI
 import pandas as pd
 import sqlalchemy
 import numpy as np
+import os
+from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -19,8 +21,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Cargar variables de entorno de forma segura
+load_dotenv()
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+DB_NAME = os.getenv("DB_NAME")
+
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
 # Conexión a la Base de Datos
-engine = sqlalchemy.create_engine('postgresql://admin_dataops:password_seguro_123@localhost:5434/iot_predictivo')
+engine = sqlalchemy.create_engine(DATABASE_URL)
 
 @app.get("/")
 def home():
@@ -36,7 +48,6 @@ def obtener_telemetria():
         # Convertir el timestamp a string para evitar problemas de serialización JSON
         if 'timestamp_lectura' in df.columns:
             df['timestamp_lectura'] = df['timestamp_lectura'].astype(str)
-
 
         # Elimina cualquier registro que contenga al menos un valor nulo/vacío
         df = df.dropna()

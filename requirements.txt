@@ -1,0 +1,29 @@
+# ==============================================================================
+# DATAOPS IOT PIPELINE - REQUIREMENTS
+# Archivo de dependencias del proyecto estructurado por capas arquitectónicas.
+# compatible con Python 3.11+ / 3.12+ / 3.13
+# ==============================================================================
+
+# --- CAPA DE INGESTA Y COMUNICACIÓN (Kafka) ---
+# Soporte para la conexión y transmisión de eventos con Apache Kafka
+kafka-python-ng>=2.2.2          # Fork mantenido y compatible con Python 3.11+ / 3.13
+
+# --- CAPA DE PROCESAMIENTO Y PIPELINES (DataOps) ---
+# Manipulación y limpieza de datos estructurados en tiempo real
+pandas>=2.2.0
+numpy>=1.26.0
+
+# --- CAPA DE PERSISTENCIA (Base de Datos) ---
+# Conexión ORM y driver nativo para PostgreSQL
+SQLAlchemy>=2.0.0
+psycopg2-binary>=2.9.9         # Driver binario optimizado para entornos de desarrollo/demo
+
+# --- CAPA DE SERVICIO (Backend REST API) ---
+# Framework de alta performance para la exposición de endpoints e interconexión
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+
+# --- CAPA DE VISUALIZACIÓN (Frontend App) ---
+# Interfaz gráfica interactiva y consumo de servicios REST
+streamlit>=1.32.0
+requests>=2.31.0
