@@ -81,13 +81,32 @@ while True:
                             df_sucio.loc[0, 'temperatura'] = -999.0
                             df_sucio.loc[2, 'temperatura'] = -999.0
                     
-                    st.dataframe(df_sucio[['timestamp_lectura', 'id_maquina', 'rpm', 'temperatura']], use_container_width=True, height=400)
+                    # DataFrame ANTES con configuración visual
+                    st.dataframe(
+                        df_sucio[['timestamp_lectura', 'id_maquina', 'rpm', 'temperatura']], 
+                        use_container_width=True, 
+                        height=400,
+                        column_config={
+                            "rpm": st.column_config.Column("RPM", width="small"),
+                            "temperatura": st.column_config.NumberColumn("Temperatura", format="%f °C", width="small")
+                        }
+                    )
                     st.caption("Problemas detectados: Formatos incorrectos, espacios en blanco y valores atípicos.")
 
                 with col_despues:
                     st.success("DESPUÉS: Datos Curados y Seguros (DataOps + Ley 19.628)")
                     
-                    st.dataframe(df_limpio, use_container_width=True, height=400)
+                    # DataFrame DESPUÉS con configuración visual
+                    st.dataframe(
+                        df_limpio, 
+                        use_container_width=True, 
+                        height=400,
+                        column_config={
+                            "rpm": st.column_config.NumberColumn("RPM", width="small"),
+                            "temperatura": st.column_config.NumberColumn("Temperatura", format="%.2f °C", width="small"),
+                            "nombre_operador": st.column_config.TextColumn("Operador (SHA-256)", width="medium") # Limita el ancho del hash
+                        }
+                    )
                     st.caption("Soluciones aplicadas: Tipado estandarizado, remoción de anomalías y Hashing SHA-256 para anonimización.")
             else:
                 st.warning("La API respondió con éxito, pero la tabla en PostgreSQL no tiene registros actualmente.")
