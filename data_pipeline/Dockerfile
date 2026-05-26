@@ -11,7 +11,7 @@ WORKDIR /app
 
 # Copiar el script y las variables de entorno
 COPY spark_streaming_limpio.py /app/
-COPY .env /app/
+
 
 # Instalar PySpark y dotenv
 RUN pip install --no-cache-dir python-dotenv pyspark==3.5.1
