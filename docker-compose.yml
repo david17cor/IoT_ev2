@@ -7,14 +7,14 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     ports:
-      - 22181:2181
+      - "2181:2181"
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     depends_on:
       - zookeeper
     ports:
-      - 29092:29092
+      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -23,7 +23,7 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
-  db_iot:
+  postgres:
     image: postgres:15
     environment:
       POSTGRES_USER: admin_dataops
@@ -31,3 +31,20 @@ services:
       POSTGRES_DB: iot_predictivo
     ports:
       - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  spark-streaming:
+    build:
+      context: ./data_pipeline
+    depends_on:
+      - kafka
+      - postgres
+    environment:
+      - SPARK_MODE=worker
+    # Usamos la red interna de Docker para conectarnos a Kafka y Postgres
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  postgres_data:
