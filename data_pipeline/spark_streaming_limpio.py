@@ -11,7 +11,7 @@ from pyspark.sql.types import StructType, StructField, StringType
 load_dotenv()
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_HOST = os.getenv("DB_HOST", "postgres")  # Valor por defecto para Docker Compose
 DB_PORT = os.getenv("DB_PORT", "5434")
 DB_NAME = os.getenv("DB_NAME", "iot_predictivo")
 
@@ -43,7 +43,7 @@ esquema_sensor = StructType([
 # 4. Leer el flujo de datos desde Kafka
 kafka_stream = spark.readStream \
     .format("kafka") \
-    .option("kafka.bootstrap.servers", "localhost:29092") \
+    .option("kafka.bootstrap.servers", "kafka:9092") \
     .option("subscribe", "telemetria_sucia") \
     .option("startingOffsets", "latest") \
     .load()
