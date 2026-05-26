@@ -1,22 +1,20 @@
-FROM bitnami/spark:3.5
+FROM python:3.11-slim
 
-# Cambiar a usuario root para instalar dependencias
-USER root
+# Instalar Java (Requisito indispensable para que Apache Spark funcione)
+RUN apt-get update && \
+    apt-get install -y default-jre && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Establecer el directorio de trabajo
 WORKDIR /app
 
-# Copiar el script y el archivo de requerimientos (si lo hay)
+# Copiar el script y las variables de entorno
 COPY spark_streaming_limpio.py /app/
 COPY .env /app/
 
-# Instalar las librerías de Python necesarias para el script
+# Instalar PySpark y dotenv
 RUN pip install --no-cache-dir python-dotenv pyspark==3.5.1
 
-# Cambiar de nuevo al usuario de Spark por seguridad
-USER 1001
-
-# Ejecutar el script usando spark-submit
-CMD ["spark-submit", \
-     "--packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.postgresql:postgresql:42.7.3", \
-     "/app/spark_streaming_limpio.py"]
+# Ejecutar el script directamente con Python
+CMD ["python", "spark_streaming_limpio.py"]
