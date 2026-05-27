@@ -12,7 +12,7 @@ load_dotenv()
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST", "postgres")  # Valor por defecto para Docker Compose
-DB_PORT = os.getenv("DB_PORT", "5434")
+DB_PORT = os.getenv("DB_PORT", "5432")  # Valor por defecto para PostgreSQL 
 DB_NAME = os.getenv("DB_NAME", "iot_predictivo")
 
 JDBC_URL = f"jdbc:postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}"
