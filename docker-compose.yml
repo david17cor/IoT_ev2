@@ -40,8 +40,12 @@ services:
     depends_on:
       - kafka
       - postgres
+    env_file:
+      - .env
     environment:
       - SPARK_MODE=worker
+      - DB_HOST=postgres
+      - DB_PORT=5432
     # Usamos la red interna de Docker para conectarnos a Kafka y Postgres
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -63,6 +67,6 @@ services:
       - backend-api
     ports:
       - "8501:8501"
-      
+
 volumes:
   postgres_data:

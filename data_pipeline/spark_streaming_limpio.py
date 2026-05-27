@@ -1,5 +1,4 @@
 import os
-from dotenv import load_dotenv
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, from_json, to_timestamp, lower, regexp_replace,
@@ -7,15 +6,15 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StructType, StructField, StringType
 
-# 1. Cargar variables de entorno (Credenciales)
-load_dotenv()
+# 1. Cargar variables de entorno inyectadas por Docker
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST", "postgres")  # Valor por defecto para Docker Compose
-DB_PORT = os.getenv("DB_PORT", "5432")  # Valor por defecto para PostgreSQL 
-DB_NAME = os.getenv("DB_NAME", "iot_predictivo")
+DB_HOST = os.getenv("DB_HOST") 
+DB_PORT = os.getenv("DB_PORT") 
+DB_NAME = os.getenv("DB_NAME")
 
 JDBC_URL = f"jdbc:postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}"
+print("🔐 Variables de entorno cargadas:")
 
 # 2. Inicializar SparkSession
 # Descargamos dinámicamente los drivers para Kafka y PostgreSQL
