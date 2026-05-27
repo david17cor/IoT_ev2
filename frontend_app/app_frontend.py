@@ -51,7 +51,7 @@ st.markdown("### Extracción de datos mediante API REST intermedia")
 # Contenedor para refresco en tiempo real
 placeholder = st.empty()
 
-API_URL = "http://127.0.0.1:8000/api/telemetria"
+API_URL = "http://backend-api:8000/api/telemetria"
 
 while True:
     try:
