@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir fastapi uvicorn psycopg2-binary python-dotenv pandas
+RUN pip install --no-cache-dir fastapi uvicorn psycopg2-binary python-dotenv pandas sqlalchemy
 
 # Copiar el código de la API
 COPY api.py /app/
