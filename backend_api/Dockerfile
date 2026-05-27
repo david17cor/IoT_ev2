@@ -2,8 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Instalar dependencias necesarias para FastAPI y PostgreSQL
-RUN pip install --no-cache-dir fastapi uvicorn psycopg2-binary python-dotenv
+RUN pip install --no-cache-dir fastapi uvicorn psycopg2-binary python-dotenv pandas
 
 # Copiar el código de la API
 COPY api.py /app/
