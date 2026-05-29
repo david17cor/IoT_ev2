@@ -75,6 +75,8 @@ services:
       - kafka
     environment:
       - KAFKA_BROKER=kafka:9092
+      - PYTHONBUFFERED=1
+    restart: always
 
 volumes:
   postgres_data:
