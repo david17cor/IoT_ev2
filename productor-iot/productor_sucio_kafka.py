@@ -1,18 +1,32 @@
 import os
 import json
 import random
+import sys
 import time
 from datetime import datetime
+
+# 0. Imprimir de inmediato para confirmar que Python arrancó
+print("🟢 Contenedor del Productor iniciado. Leyendo librerías...", flush=True)
+
 from kafka import KafkaProducer
 
 # 1. Capturamos el broker desde Docker (o usamos 'kafka:9092' por defecto)
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:9092")
+print(f"⏳ Intentando conectar a Kafka en: {KAFKA_BROKER}...", flush=True)
 
 # 2. Configurar el Productor de Kafka apuntando a la red interna
-producer = KafkaProducer(
-    bootstrap_servers=[KAFKA_BROKER],
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
+try:
+    producer = KafkaProducer(
+        bootstrap_servers=[KAFKA_BROKER],
+        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+        api_version=(2, 5, 0), # Evita que se quede colgado buscando la versión
+        request_timeout_ms=5000, # Si en 5 segundos no conecta, falla
+        max_block_ms=5000
+    )
+    print("✅ Conectado a Kafka exitosamente.", flush=True)
+except Exception as e:
+    print(f"❌ ERROR CRÍTICO al conectar con Kafka: {e}", flush=True)
+    sys.exit(1) # Forzamos a que el contenedor se caiga y se reinicie
 
 TOPIC_NAME = 'telemetria_sucia'
 
