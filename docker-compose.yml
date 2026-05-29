@@ -68,5 +68,13 @@ services:
     ports:
       - "8501:8501"
 
+  productor-iot:
+    build:
+      context: ./productor-iot
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BROKER=kafka:9092
+
 volumes:
   postgres_data:

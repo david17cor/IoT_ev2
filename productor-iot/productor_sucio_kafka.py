@@ -1,12 +1,16 @@
+import os
 import json
 import random
 import time
 from datetime import datetime
 from kafka import KafkaProducer
 
-# Configurar el Productor de Kafka
+# 1. Capturamos el broker desde Docker (o usamos 'kafka:9092' por defecto)
+KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:9092")
+
+# 2. Configurar el Productor de Kafka apuntando a la red interna
 producer = KafkaProducer(
-    bootstrap_servers=['localhost:29092'],
+    bootstrap_servers=[KAFKA_BROKER],
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
@@ -30,7 +34,7 @@ OPERADORES_POOL = [
 def generar_y_enviar_en_vivo():
     maquinas = [f"MAQ-CNC-{str(i).zfill(2)}" for i in range(1, 11)]
     
-    print("🚀 Iniciando Ingesta IoT en Vivo hacia Kafka...")
+    print(f"🚀 Iniciando Ingesta IoT en Vivo hacia Kafka en: {KAFKA_BROKER}...")
     print("✨ Rotación aleatoria de 10 operadores y 10 máquinas activada.")
     print("------------------------------------------------------------")
     
