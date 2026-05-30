@@ -45,6 +45,16 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# =========================================================================
+# INITIALIZE SESSION STATE CONTADORES (Persistentes entre refrescos)
+# =========================================================================
+if "total_crudos" not in st.session_state:
+    st.session_state.total_crudos = 0
+if "total_exitosos" not in st.session_state:
+    st.session_state.total_exitosos = 0
+if "total_descartados" not in st.session_state:
+    st.session_state.total_descartados = 0
+
 st.title("Centro de Control DataOps - Pipeline IoT")
 st.markdown("### Extracción de datos mediante API REST intermedia")
 
@@ -60,26 +70,53 @@ while True:
         
         with placeholder.container():
             if response.get("success") and response.get("data"):
-                data_limpia = response["data"]
-                df_limpio = pd.DataFrame(data_limpia)
+                data_api = response["data"]
+                df_base = pd.DataFrame(data_api)
                 
-                # Fila de Métricas Generales
-                st.metric(label="Flujo de Ingesta Activo (API)", value=f"{len(df_limpio)} Eventos/s")
+                # --- LÓGICA DE SIMULACIÓN ANTES VS DESPUÉS ---
+                # 1. Construir Tabla Izquierda (Cruda / Sucia)
+                df_sucio = df_base.copy()
+                if not df_sucio.empty:
+                    df_sucio['rpm'] = df_sucio['rpm'].astype(str).str.replace('.', ',', regex=False)
+                    df_sucio['nombre_operador'] = "   " + df_sucio['id_maquina'].str.upper() + "   " 
+                    if len(df_sucio) > 2:
+                        df_sucio.loc[0, 'temperatura'] = -999.0
+                        df_sucio.loc[2, 'temperatura'] = -999.0
+
+                # 2. Construir Tabla Derecha (Limpia / Procesada con Éxito)
+                # Filtramos las filas que simulamos como "anómalas" para reflejar el descarte real de Spark
+                if len(df_sucio) > 2:
+                    df_limpio = df_base.drop([0, 2]).reset_index(drop=True)
+                    unidades_descartadas_ahora = 2
+                else:
+                    df_limpio = df_base.copy()
+                    unidades_descartadas_ahora = 0
+                
+                unidades_crudas_ahora = len(df_sucio)
+                unidades_limpias_ahora = len(df_limpio)
+                
+                # 3. Acumular en las métricas globales históricas
+                st.session_state.total_crudos += unidades_crudas_ahora
+                st.session_state.total_exitosos += unidades_limpias_ahora
+                st.session_state.total_descartados += unidades_descartadas_ahora
+                
+                # Fila de Métrica General Superior (Velocidad actual de la API)
+                st.metric(label="Flujo de Ingesta Activo (API)", value=f"{unidades_crudas_ahora} Eventos/s")
                 st.markdown("---")
                 
                 # Diseño de Pantalla Dividida: ANTES vs DESPUÉS
                 col_antes, col_despues = st.columns(2)
                 
+                # --- COLUMNA ANTES: DATOS CRUDOS ---
                 with col_antes:
-                    st.error("ANTES: Datos Crudos de la Planta (Simulados en Sensor)")
-                    df_sucio = df_limpio.copy()
-                    if not df_sucio.empty:
-                        # Simulando los errores de origen
-                        df_sucio['rpm'] = df_sucio['rpm'].astype(str).str.replace('.', ',')
-                        df_sucio['nombre_operador'] = "   " + df_sucio['id_maquina'].str.upper() + "   " 
-                        if len(df_sucio) > 2:
-                            df_sucio.loc[0, 'temperatura'] = -999.0
-                            df_sucio.loc[2, 'temperatura'] = -999.0
+                    st.error("🛑 ANTES: Datos Crudos de la Planta (Simulados en Sensor)")
+                    
+                    # Métrica de control para el bloque rojo
+                    st.metric(
+                        label="📥 Total Crudos Recibidos", 
+                        value=f"{st.session_state.total_crudos} recs",
+                        delta=f"+{unidades_crudas_ahora} nuevos"
+                    )
                     
                     # DataFrame ANTES con configuración visual
                     st.dataframe(
@@ -91,10 +128,27 @@ while True:
                             "temperatura": st.column_config.NumberColumn("Temperatura", format="%f °C", width="small")
                         }
                     )
-                    st.caption("Problemas detectados: Formatos incorrectos, espacios en blanco y valores atípicos.")
+                    st.caption("Problemas detectados: Formatos incorrectos, espacios en blanco y valores atípicos (-999°C).")
 
+                # --- COLUMNA DESPUÉS: DATOS CURADOS ---
                 with col_despues:
-                    st.success("DESPUÉS: Datos Curados y Seguros (DataOps + Ley 19.628)")
+                    st.success("❇️ DESPUÉS: Datos Curados y Seguros (DataOps + Ley 19.628)")
+                    
+                    # Subcolumnas internas para colocar dos tarjetas de métricas en paralelo
+                    sub_col1, sub_col2 = st.columns(2)
+                    with sub_col1:
+                        st.metric(
+                            label="✅ Procesados con Éxito", 
+                            value=f"{st.session_state.total_exitosos} recs",
+                            delta=f"+{unidades_limpias_ahora} ok"
+                        )
+                    with sub_col2:
+                        st.metric(
+                            label="⚠️ Total Descartados", 
+                            value=f"{st.session_state.total_descartados} recs",
+                            delta=f"+{unidades_descartadas_ahora} anomalías",
+                            delta_color="inverse" # Cambia el color del delta a rojo si sube
+                        )
                     
                     # DataFrame DESPUÉS con configuración visual
                     st.dataframe(
@@ -104,7 +158,7 @@ while True:
                         column_config={
                             "rpm": st.column_config.NumberColumn("RPM", width="small"),
                             "temperatura": st.column_config.NumberColumn("Temperatura", format="%.2f °C", width="small"),
-                            "nombre_operador": st.column_config.TextColumn("Operador (SHA-256)", width="medium") # Limita el ancho del hash
+                            "nombre_operador": st.column_config.TextColumn("Operador (SHA-256)", width="medium")
                         }
                     )
                     st.caption("Soluciones aplicadas: Tipado estandarizado, remoción de anomalías y Hashing SHA-256 para anonimización.")
