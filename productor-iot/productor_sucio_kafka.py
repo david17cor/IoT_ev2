@@ -80,13 +80,18 @@ def generar_y_enviar_en_vivo():
             "Nombre_Operador": op_elegido["nombre"], # Ya incluye los espacios sucios de la lista
             "rut_op": op_elegido["rut"]
         }
-        
-        # Enviar a Kafka
-        producer.send(TOPIC_NAME, value=payload_sucio)
-        
-        # Mostrar en consola lo que se está enviando para verificar visualmente la variedad
-        print(f"🔴 ENVIADO SUCIO -> Maquina: {payload_sucio['ID_Maquina']} | Op: {payload_sucio['Nombre_Operador'].strip()} | RPM: {payload_sucio['Revoluciones_RPM']} | Temp: {payload_sucio['Temp_C']}")
-        
+    
+        try:
+            # 1. Enviar a Kafka y OBLIGAR a que confirme recepción (Síncrono)
+            producer.send(TOPIC_NAME, value=payload_sucio).get(timeout=5)
+            
+            # 2. Imprimir con flush=True para que no se quede atrapado en memoria
+            print(f"🔴 ENVIADO SUCIO -> Maquina: {payload_sucio['ID_Maquina']} | Op: {payload_sucio['Nombre_Operador'].strip()} | RPM: {payload_sucio['Revoluciones_RPM']} | Temp: {payload_sucio['Temp_C']}", flush=True)
+            
+        except Exception as e:
+            # Si Kafka no responde en 5 segundos, nos avisará en lugar de congelarse
+            print(f"⚠️ Alerta: Fallo al enviar mensaje a Kafka: {e}", flush=True)
+            
         time.sleep(1.5) # Espera 1.5 segundos entre envíos
 
 if __name__ == "__main__":
