@@ -56,7 +56,7 @@ df_clean = df_parsed \
     .withColumn("id_maquina", lower(col("ID_Maquina"))) \
     .withColumn("rpm", regexp_replace(col("Revoluciones_RPM"), ",", ".").cast("float")) \
     .withColumn("temp_num", col("Temp_C").cast("float")) \
-    .withColumn("temperatura", when((col("temp_num") >= 0) & (col("temp_num") <= 300), col("temp_num")).otherwise(lit(None))) \
+    .withColumn("temperatura", when((col("temp_num") >= 0) & (col("temp_num") <= 300), col("temp_num")).otherwise(lit(None).cast("float"))) \
     .withColumn("op_id", col("op_id")) \
     .withColumn("nombre_operador", sha2(trim(initcap(col("Nombre_Operador"))), 256)) \
     .withColumn("rut_op", concat(lit("XX.XXX.XX"), substring(col("rut_op"), -3, 3))) \
@@ -65,17 +65,28 @@ df_clean = df_parsed \
 # 6. Función para inyectar cada micro-lote (micro-batch) a PostgreSQL
 def write_to_postgres(batch_df, batch_id):
     if not batch_df.isEmpty():
-        batch_df.write \
-            .format("jdbc") \
-            .option("url", JDBC_URL) \
-            .option("dbtable", "telemetria_limpia") \
-            .option("user", DB_USER) \
-            .option("password", DB_PASSWORD) \
-            .option("driver", "org.postgresql.Driver") \
-            .mode("append") \
-            .save()
-        print(f"✅ Micro-batch {batch_id} procesado con PySpark y guardado en DB (Registros: {batch_df.count()})")
-
+        try:
+            # Filtramos cualquier fila que tenga nulos en columnas críticas para evitar el choque con PostgreSQL
+            batch_df_clean = batch_df.filter(col("temperatura").isNotNull() & col("rpm").isNotNull())
+            
+            # Si después de limpiar aún hay datos, los guardamos
+            if not batch_df_clean.isEmpty():
+                batch_df_clean.write \
+                    .format("jdbc") \
+                    .option("url", JDBC_URL) \
+                    .option("dbtable", "telemetria_limpia") \
+                    .option("user", DB_USER) \
+                    .option("password", DB_PASSWORD) \
+                    .option("driver", "org.postgresql.Driver") \
+                    .mode("append") \
+                    .save()
+                print(f"✅ Micro-batch {batch_id} guardado en DB (Registros válidos: {batch_df_clean.count()})")
+            else:
+                print(f"⚠️ Micro-batch {batch_id} descartado (Contenía solo datos anómalos/sucios)")
+                
+        except Exception as e:
+            # Si hay un error de conexión o de esquema con la DB, Spark NO muere, solo avisa.
+            print(f"❌ Error crítico en base de datos al intentar guardar el batch {batch_id}: {e}")
 # 7. Ejecutar el Stream
 query = df_clean.writeStream \
     .foreachBatch(write_to_postgres) \
