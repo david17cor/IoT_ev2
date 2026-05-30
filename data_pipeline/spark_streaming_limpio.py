@@ -63,14 +63,23 @@ df_clean = df_parsed \
     .select("timestamp_lectura", "id_maquina", "rpm", "temperatura", "op_id", "nombre_operador", "rut_op")
 
 # 6. Función para inyectar cada micro-lote (micro-batch) a PostgreSQL
+# 6. Función optimizada para inyectar cada micro-lote a PostgreSQL sin saturar la memoria
 def write_to_postgres(batch_df, batch_id):
-    if not batch_df.isEmpty():
+    # 1. Guardar el lote en caché para evitar re-leer de Kafka múltiples veces
+    batch_df.cache()
+    
+    # 2. Reemplazamos .isEmpty() por un .count() único
+    total_inicial = batch_df.count()
+    
+    if total_inicial > 0:
         try:
-            # Filtramos cualquier fila que tenga nulos en columnas críticas para evitar el choque con PostgreSQL
+            # 3. Aplicamos el filtro de limpieza
             batch_df_clean = batch_df.filter(col("temperatura").isNotNull() & col("rpm").isNotNull())
+            batch_df_clean.cache() # Cacheamos también el dataframe limpio
             
-            # Si después de limpiar aún hay datos, los guardamos
-            if not batch_df_clean.isEmpty():
+            registros_validos = batch_df_clean.count()
+            
+            if registros_validos > 0:
                 batch_df_clean.write \
                     .format("jdbc") \
                     .option("url", JDBC_URL) \
@@ -80,13 +89,18 @@ def write_to_postgres(batch_df, batch_id):
                     .option("driver", "org.postgresql.Driver") \
                     .mode("append") \
                     .save()
-                print(f"✅ Micro-batch {batch_id} guardado en DB (Registros válidos: {batch_df_clean.count()})")
+                print(f"✅ Micro-batch {batch_id} guardado en DB (Registros válidos: {registros_validos})", flush=True)
             else:
-                print(f"⚠️ Micro-batch {batch_id} descartado (Contenía solo datos anómalos/sucios)")
-                
+                print(f"⚠️ Micro-batch {batch_id} descartado (Contenía solo datos anómalos/sucios)", flush=True)
+            
+            # 4. Liberar la memoria del dataframe limpio
+            batch_df_clean.unpersist()
+            
         except Exception as e:
-            # Si hay un error de conexión o de esquema con la DB, Spark NO muere, solo avisa.
-            print(f"❌ Error crítico en base de datos al intentar guardar el batch {batch_id}: {e}")
+            print(f"❌ Error crítico en base de datos al intentar guardar el batch {batch_id}: {e}", flush=True)
+    
+    # 5. Liberar la memoria del dataframe original al finalizar el lote
+    batch_df.unpersist()
 # 7. Ejecutar el Stream
 query = df_clean.writeStream \
     .foreachBatch(write_to_postgres) \
