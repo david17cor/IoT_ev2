@@ -6,29 +6,29 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StructType, StructField, StringType
 
-# 1. Cargar variables de entorno inyectadas por Docker
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST") 
-DB_PORT = os.getenv("DB_PORT") 
-DB_NAME = os.getenv("DB_NAME")
+# 1. Cargar variables de entorno
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
+DB_HOST = os.getenv("DB_HOST", "postgres") 
+DB_PORT = os.getenv("DB_PORT", "5432") 
+DB_NAME = os.getenv("DB_NAME", "postgres")
 
-JDBC_URL = f"jdbc:postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}"
-print("🔐 Variables de entorno cargadas:")
+# URLs para Capa Oro (Actual) y Capa Bronce (Nueva db_telemetria_cruda)
+JDBC_URL_GOLD = f"jdbc:postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}"
+JDBC_URL_BRONZE = f"jdbc:postgresql://postgres_raw:5432/telemetria_cruda_db"
+print("🔐 Variables de entorno y URLs de conexión preparadas.")
 
 # 2. Inicializar SparkSession
-# Descargamos dinámicamente los drivers para Kafka y PostgreSQL
 print("⏳ Iniciando motor Apache Spark y descargando dependencias (Kafka + JDBC)...")
 spark = SparkSession.builder \
-    .appName("DataOps_IoT_Streaming") \
+    .appName("DataOps_IoT_Streaming_Medallion") \
     .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.postgresql:postgresql:42.7.3") \
     .getOrCreate()
 
-# Reducir los logs nativos de Spark para limpiar la consola
 spark.sparkContext.setLogLevel("WARN")
-print("🟢 PySpark iniciado correctamente. Conectando a Kafka...")
+print("🟢 PySpark iniciado. Conectando a Kafka...")
 
-# 3. Definir el esquema exacto que envía nuestro sensor IoT
+# 3. Esquema del sensor IoT
 esquema_sensor = StructType([
     StructField("timestamp_lectura", StringType(), True),
     StructField("ID_Maquina", StringType(), True),
@@ -39,7 +39,7 @@ esquema_sensor = StructType([
     StructField("rut_op", StringType(), True)
 ])
 
-# 4. Leer el flujo de datos desde Kafka
+# 4. Leer Kafka
 kafka_stream = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "kafka:9092") \
@@ -47,65 +47,65 @@ kafka_stream = spark.readStream \
     .option("startingOffsets", "latest") \
     .load()
 
-# 5. Transformaciones: Deserializar JSON y aplicar reglas DataOps + Ley 19.628
-# Extraemos el 'value' binario de Kafka y lo convertimos a columnas según el esquema
+# Extraer el JSON
 df_parsed = kafka_stream.select(from_json(col("value").cast("string"), esquema_sensor).alias("data")).select("data.*")
 
-df_clean = df_parsed \
-    .withColumn("timestamp_lectura", to_timestamp(col("timestamp_lectura"), "dd/MM/yyyy HH:mm:ss")) \
-    .withColumn("id_maquina", lower(col("ID_Maquina"))) \
-    .withColumn("rpm", regexp_replace(col("Revoluciones_RPM"), ",", ".").cast("float")) \
-    .withColumn("temp_num", col("Temp_C").cast("float")) \
-    .withColumn("temperatura", when((col("temp_num") >= 0) & (col("temp_num") <= 300), col("temp_num")).otherwise(lit(None).cast("float"))) \
-    .withColumn("op_id", col("op_id")) \
-    .withColumn("nombre_operador", sha2(trim(initcap(col("Nombre_Operador"))), 256)) \
-    .withColumn("rut_op", concat(lit("XX.XXX.XX"), substring(col("rut_op"), -3, 3))) \
-    .select("timestamp_lectura", "id_maquina", "rpm", "temperatura", "op_id", "nombre_operador", "rut_op")
-
-# 6. Función para inyectar cada micro-lote (micro-batch) a PostgreSQL
-# 6. Función optimizada para inyectar cada micro-lote a PostgreSQL sin saturar la memoria
-def write_to_postgres(batch_df, batch_id):
-    # 1. Guardar el lote en caché para evitar re-leer de Kafka múltiples veces
+# 5. Función de Bifurcación (Capa Bronce y Capa Oro)
+def process_medallion_batch(batch_df, batch_id):
     batch_df.cache()
+    total_crudos = batch_df.count()
     
-    # 2. Reemplazamos .isEmpty() por un .count() único
-    total_inicial = batch_df.count()
-    
-    if total_inicial > 0:
+    if total_crudos > 0:
         try:
-            # 3. Aplicamos el filtro de limpieza
-            batch_df_clean = batch_df.filter(col("temperatura").isNotNull() & col("rpm").isNotNull())
-            batch_df_clean.cache() # Cacheamos también el dataframe limpio
+            # --- 🛡️ CAPA BRONCE: Guardar dato 100% crudo ---
+            batch_df.write \
+                .format("jdbc") \
+                .option("url", JDBC_URL_BRONZE) \
+                .option("dbtable", "raw_records") \
+                .option("user", DB_USER) \
+                .option("password", DB_PASSWORD) \
+                .option("driver", "org.postgresql.Driver") \
+                .mode("append") \
+                .save()
             
-            registros_validos = batch_df_clean.count()
+            # --- 🥇 CAPA ORO: Transformación y Limpieza ---
+            df_clean = batch_df \
+                .withColumn("timestamp_lectura", to_timestamp(col("timestamp_lectura"), "dd/MM/yyyy HH:mm:ss")) \
+                .withColumn("id_maquina", lower(col("ID_Maquina"))) \
+                .withColumn("rpm", regexp_replace(col("Revoluciones_RPM"), ",", ".").cast("float")) \
+                .withColumn("temp_num", col("Temp_C").cast("float")) \
+                .withColumn("temperatura", when((col("temp_num") >= 0) & (col("temp_num") <= 300), col("temp_num")).otherwise(lit(None).cast("float"))) \
+                .withColumn("op_id", col("op_id")) \
+                .withColumn("nombre_operador", sha2(trim(initcap(col("Nombre_Operador"))), 256)) \
+                .withColumn("rut_op", concat(lit("XX.XXX.XX"), substring(col("rut_op"), -3, 3))) \
+                .select("timestamp_lectura", "id_maquina", "rpm", "temperatura", "op_id", "nombre_operador", "rut_op")
+                
+            # Filtro de anomalías severas
+            df_final = df_clean.filter(col("temperatura").isNotNull() & col("rpm").isNotNull())
+            registros_validos = df_final.count()
             
             if registros_validos > 0:
-                batch_df_clean.write \
+                df_final.write \
                     .format("jdbc") \
-                    .option("url", JDBC_URL) \
+                    .option("url", JDBC_URL_GOLD) \
                     .option("dbtable", "telemetria_limpia") \
                     .option("user", DB_USER) \
                     .option("password", DB_PASSWORD) \
                     .option("driver", "org.postgresql.Driver") \
                     .mode("append") \
                     .save()
-                print(f"✅ Micro-batch {batch_id} guardado en DB (Registros válidos: {registros_validos})", flush=True)
-            else:
-                print(f"⚠️ Micro-batch {batch_id} descartado (Contenía solo datos anómalos/sucios)", flush=True)
             
-            # 4. Liberar la memoria del dataframe limpio
-            batch_df_clean.unpersist()
-            
+            print(f"✅ Batch {batch_id} procesado: {total_crudos} crudos -> {registros_validos} limpios.", flush=True)
+
         except Exception as e:
-            print(f"❌ Error crítico en base de datos al intentar guardar el batch {batch_id}: {e}", flush=True)
-    
-    # 5. Liberar la memoria del dataframe original al finalizar el lote
+            print(f"❌ Error en base de datos al guardar batch {batch_id}: {e}", flush=True)
+            
     batch_df.unpersist()
-# 7. Ejecutar el Stream
-query = df_clean.writeStream \
-    .foreachBatch(write_to_postgres) \
+
+# 6. Ejecutar Stream
+query = df_parsed.writeStream \
+    .foreachBatch(process_medallion_batch) \
     .outputMode("append") \
     .start()
 
-# Mantener el proceso vivo escuchando nuevos datos
 query.awaitTermination()
