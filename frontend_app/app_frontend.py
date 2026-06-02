@@ -23,10 +23,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Variables de estado para inmunidad a datos históricos
+# Solo guardamos memoria para calcular la velocidad por segundo (las flechitas verdes)
 if "last_total_crudos" not in st.session_state: st.session_state.last_total_crudos = 0
 if "last_total_exitosos" not in st.session_state: st.session_state.last_total_exitosos = 0
-if "anomalias_sesion" not in st.session_state: st.session_state.anomalias_sesion = 0
 
 st.title("Centro de Control DataOps - Pipeline IoT")
 st.markdown("### Arquitectura Medallón (Capa Bronce vs Capa Oro)")
@@ -46,19 +45,23 @@ while True:
                 df_limpio = pd.DataFrame(res_oro.get("data", []))
                 df_crudo = pd.DataFrame(res_bronce.get("data", []))
                 
-                # Totales reales de la base de datos
+                # 1. TOTALES ABSOLUTOS E HISTÓRICOS (Fuente de la Verdad: Base de Datos)
                 total_crudos_db = res_bronce.get("total_db", 0)
                 total_limpios_db = res_oro.get("total_db", 0)
                 
-                # Calcular velocidad (Deltas puros)
+                # ¡LA MAGIA AQUÍ! Matemática pura: la diferencia exacta e inmutable
+                total_descartados_db = max(0, total_crudos_db - total_limpios_db)
+                
+                # 2. CÁLCULO DE VELOCIDAD (Deltas para la sesión actual)
                 delta_crudos = max(0, total_crudos_db - st.session_state.last_total_crudos)
                 delta_limpios = max(0, total_limpios_db - st.session_state.last_total_exitosos)
-                
-                # Si no es la primera carga, sumar las anomalías detectadas en este micro-lote
-                st.session_state.anomalias_sesion = max(0, total_crudos_db - total_limpios_db)
                 delta_anomalias = max(0, delta_crudos - delta_limpios)
+                
+                # Evitar picos locos en el delta al recargar la página
+                if st.session_state.last_total_crudos == 0:
+                    delta_crudos, delta_limpios, delta_anomalias = 0, 0, 0
                     
-                # Actualizar memoria para el próximo ciclo
+                # 3. ACTUALIZAR MEMORIA DE VELOCIDAD
                 st.session_state.last_total_crudos = total_crudos_db
                 st.session_state.last_total_exitosos = total_limpios_db
                 
@@ -95,9 +98,10 @@ while True:
                         )
                     with sub_col2:
                         st.metric(
-                            label="⚠️ Descartes Estimados", 
-                            value=f"{st.session_state.anomalias_sesion} recs",
-                            delta=f"+{delta_anomalias} anomalías",
+                            label="⚠️ Descartes Históricos", 
+                            # ¡AQUÍ ESTÁ! Mostrando la resta absoluta de la DB
+                            value=f"{total_descartados_db} recs", 
+                            delta=f"+{delta_anomalias} anomalías detectadas hoy",
                             delta_color="inverse" 
                         )
                     
