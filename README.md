@@ -91,3 +91,54 @@ cd iot_ev2
 
 # 3. Construir las imágenes personalizadas y levantar los contenedores en segundo plano
 docker compose up -d --build
+
+
+### 🔍 4. Verificación del Estado de la Infraestructura
+Para asegurarte de que todos los microservicios se encuentran estables y operando de forma correcta dentro de la red interna de la nube, ejecuta el siguiente comando en la terminal de tu máquina virtual:
+
+```bash
+docker ps
+
+
+🎮 Guía de Operación y Funcionamiento del Ecosistema
+Una vez que la infraestructura Docker se encuentra activa en Google Cloud, el pipeline opera de forma autónoma bajo el siguiente flujo secuencial de datos:
+
+Step 1: Generación e Ingesta Asíncrona: El contenedor productor-iot inicia de forma automatizada la simulación, inyectando un flujo transaccional continuo a razón de 20 eventos por segundo directamente al broker de Apache Kafka KRaft. Los datos viajan serializados en formato JSON crudo con marcas de tiempo relativas.
+
+Step 2: Persistencia Inmutable Doble (Capa Bronze directa): Apenas los datos tocan el topic telemetria_sucia en Kafka, el pipeline ejecuta un ramal directo de persistencia hacia la base de datos PostgreSQL Bronze (Puerto 5433). Este proceso graba la información tal cual como fue emitida por el sensor industrial, sirviendo como respaldo de auditoría inalterable.
+
+Step 3: Procesamiento Analítico y Limpieza (Spark): En paralelo, Apache Spark Streaming lee el flujo de Kafka mediante micro-lotes continuos de 2 segundos. En memoria RAM, aplica las máscaras lógicas para descartar los registros térmicos de -999.0 °C, castea los strings numéricos de las RPM y ejecuta los algoritmos criptográficos de enmascaramiento de RUT y hashing SHA-256 para dar cumplimiento a la Ley 19.628. Tras purgar la data, Spark gatilla el comando de escritura en la base de datos PostgreSQL Gold (Puerto 5435).
+
+Step 4: Explotación y Acceso a los Puntos de Control: Para interactuar con el sistema en tiempo real desde tu navegador web, utiliza la IP Pública asignada a tu instancia de Google Cloud Platform a través de las siguientes URLs oficiales:
+
+📊 Centro de Control Industrial (Streamlit Dashboard): http://<TU_IP_PUBLICA_GCP>:8501
+Interfaz interactiva para observar el comportamiento dinámico de las 10 máquinas CNC. Cuenta con persistencia de métricas mediante estados de sesión para mitigar la pérdida de historial ante recargas del navegador (F5).
+
+🔌 Documentación de Servicios REST (FastAPI Swagger UI): http://<TU_IP_PUBLICA_GCP>:8000/docs
+Capa de servicios que expone endpoints JSON normalizados como /api/telemetria para disponibilizar los Golden Records de la capa Gold de forma segura a otras aplicaciones de la empresa.
+
+📈 Historial de Evolución Técnica (Changelog)
+📌 Versión 1.1 - Estructura Base e Ingesta Diferenciada
+Conexión inicial del flujo streaming completo entre Kafka, Spark y PostgreSQL de forma local.
+
+Despliegue de la API REST intermedia con FastAPI exponiendo la telemetría curada.
+
+Creación del Frontend inicial en Streamlit con diseño de pantalla dividida, sufriendo de volatilidad en los contadores métricos globales ante actualizaciones automáticas de lote.
+
+✨ Versión 1.2 - GCP Deployment, KRaft Mode, Separación Medallón y Persistencia de Estados (Versión Actual)
+Esta entrega consolida la madurez del proyecto mediante la migración a un entorno de nube productivo y la optimización drástica de recursos:
+
+☁️ Migración Completa a Google Cloud Platform: Despliegue exitoso de la arquitectura contenerizada en una instancia productiva de Compute Engine de GCP con apertura segura de puertos mediante reglas de Firewall perimetrales.
+
+🚀 Implementación de Apache Kafka Modo KRaft: Refactorización de la capa de ingesta para operar de forma nativa bajo el protocolo KRaft. Eliminación absoluta de la dependencia de ZooKeeper, logrando un ahorro masivo de uso de vCPU y memoria RAM dentro de la máquina virtual.
+
+🧱 Consolidación de Arquitectura Medallón Multi-Instancia: Separación física del almacenamiento de datos. Se desplegó de manera paralela el repositorio de datos crudos (Capa Bronze en puerto 5433) y el repositorio de datos curados analíticos (Capa Gold en puerto 5435), asegurando la integridad referencial y la gobernanza de datos exigida por los estándares internacionales de DataOps.
+
+🔒 Hardening de Seguridad de Procesamiento: Aislamiento del contenedor de Apache Spark Streaming dentro de la red interna de Docker, removiendo la exposición de sus puertos hacia el exterior de la máquina virtual como estrategia de seguridad activa contra intrusiones.
+
+🔧 Mitigación de Asfixia de Hilos en Spark (Thread Starvation): Corrección analítica en la lógica de procesamiento de Spark Streaming, donde llamadas síncronas reiteradas (.isEmpty()) bloqueaban el pool de conexiones en la VM. Se optimizó el flujo implementando .cache() y persistencia sintonizada, logrando un caudal estable de 20 eventos/s sin degradación de memoria.
+
+🧠 Control de Amnesia de Interfaz (Session State): Integración avanzada de st.session_state en el código de Streamlit. Las tarjetas analíticas acumulan de forma permanente las métricas operacionales (Total Crudos Recibidos, Procesados con Éxito, Total Descartados) sin resetearse a cero durante los refrescos cíclicos del navegador (F5).
+
+🎲 Simulación de Estrés Realista y Blinking Deltas: Elevación del abanico probabilístico de fallas térmicas a un rango dinámico del 20% al 30%, permitiendo observar fluctuaciones orgánicas en la tasa de descartes del centro de control, acompañado de micropulsos visuales CSS (@keyframes latido) que se ejecutan cada 2 segundos con cada actualización de lote.
+
