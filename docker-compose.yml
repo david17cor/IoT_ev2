@@ -36,6 +36,18 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  postgres_raw:
+    image: postgres:15-alpine
+    container_name: db_telemetria_cruda
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: telemetria_cruda_db
+    ports:
+      - "5433:5432" # Lo exponemos en el puerto 5433 para no chocar con el otro
+    networks:
+      - dataops_network
+
   spark-streaming:
     build:
       context: ./data_pipeline
@@ -69,6 +81,7 @@ services:
       - backend-api
     ports:
       - "8501:8501"
+    command: streamlit run app_frontend.py --server.port=8501 --server.address=0.0.0.0 --server.enableCORS=false --server.enableXsrfProtection=false
 
   productor-iot:
     build:
