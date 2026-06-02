@@ -23,9 +23,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-if "total_crudos" not in st.session_state: st.session_state.total_crudos = 0
-if "total_exitosos" not in st.session_state: st.session_state.total_exitosos = 0
-if "total_descartados" not in st.session_state: st.session_state.total_descartados = 0
+# Variables de estado para calcular la diferencia de velocidad entre recargas
+if "last_total_crudos" not in st.session_state: st.session_state.last_total_crudos = 0
+if "last_total_exitosos" not in st.session_state: st.session_state.last_total_exitosos = 0
 
 st.title("Centro de Control DataOps - Pipeline IoT")
 st.markdown("### Arquitectura Medallón (Capa Bronce vs Capa Oro)")
@@ -37,7 +37,6 @@ API_BRONZE = "http://backend-api:8000/api/consulta-cruda"
 
 while True:
     try:
-        # Consumir ambas APIs reales
         res_oro = requests.get(API_GOLD).json()
         res_bronce = requests.get(API_BRONZE).json()
         
@@ -46,16 +45,24 @@ while True:
                 df_limpio = pd.DataFrame(res_oro.get("data", []))
                 df_crudo = pd.DataFrame(res_bronce.get("data", []))
                 
-                unidades_crudas_ahora = len(df_crudo)
-                unidades_limpias_ahora = len(df_limpio)
-                # Estimación de descartes en el micro-lote visual
-                unidades_descartadas_ahora = max(0, unidades_crudas_ahora - unidades_limpias_ahora) 
+                # 1. Leer totales reales desde la API (La fuente de la verdad)
+                total_crudos_db = res_bronce.get("total_db", 0)
+                total_limpios_db = res_oro.get("total_db", 0)
+                total_descartados_db = max(0, total_crudos_db - total_limpios_db)
                 
-                st.session_state.total_crudos += unidades_crudas_ahora
-                st.session_state.total_exitosos += unidades_limpias_ahora
-                st.session_state.total_descartados += unidades_descartadas_ahora
+                # 2. Calcular velocidad (Deltas por actualización)
+                delta_crudos = max(0, total_crudos_db - st.session_state.last_total_crudos)
+                delta_limpios = max(0, total_limpios_db - st.session_state.last_total_exitosos)
+                delta_descartes = max(0, delta_crudos - delta_limpios)
                 
-                st.metric(label="Flujo de Ingesta Activo (API)", value=f"{unidades_crudas_ahora} Eventos/s")
+                # 3. Guardar en memoria para el próximo ciclo
+                if st.session_state.last_total_crudos == 0:  # Evitar pico inicial gigante
+                    delta_crudos, delta_limpios, delta_descartes = 0, 0, 0
+                    
+                st.session_state.last_total_crudos = total_crudos_db
+                st.session_state.last_total_exitosos = total_limpios_db
+                
+                st.metric(label="Flujo de Ingesta Activo (API)", value=f"{delta_crudos} Eventos/s")
                 st.markdown("---")
                 
                 col_antes, col_despues = st.columns(2)
@@ -65,8 +72,8 @@ while True:
                     st.error("🛑 CAPA BRONCE: Base de Datos Cruda (Telemetría Directa)")
                     st.metric(
                         label="📥 Total Crudos Extraídos", 
-                        value=f"{st.session_state.total_crudos} recs",
-                        delta=f"+{unidades_crudas_ahora} nuevos"
+                        value=f"{total_crudos_db} recs",
+                        delta=f"+{delta_crudos} nuevos"
                     )
                     st.dataframe(
                         df_crudo[['timestamp_lectura', 'ID_Maquina', 'Revoluciones_RPM', 'Temp_C']] if not df_crudo.empty else df_crudo, 
@@ -83,14 +90,14 @@ while True:
                     with sub_col1:
                         st.metric(
                             label="✅ Registros Seguros", 
-                            value=f"{st.session_state.total_exitosos} recs",
-                            delta=f"+{unidades_limpias_ahora} ok"
+                            value=f"{total_limpios_db} recs",
+                            delta=f"+{delta_limpios} ok"
                         )
                     with sub_col2:
                         st.metric(
                             label="⚠️ Descartes Estimados", 
-                            value=f"{st.session_state.total_descartados} recs",
-                            delta=f"+{unidades_descartadas_ahora} anomalías",
+                            value=f"{total_descartados_db} recs",
+                            delta=f"+{delta_descartes} anomalías",
                             delta_color="inverse" 
                         )
                     
