@@ -23,9 +23,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Variables de estado para calcular la diferencia de velocidad entre recargas
+# Variables de estado para inmunidad a datos históricos
 if "last_total_crudos" not in st.session_state: st.session_state.last_total_crudos = 0
 if "last_total_exitosos" not in st.session_state: st.session_state.last_total_exitosos = 0
+if "anomalias_sesion" not in st.session_state: st.session_state.anomalias_sesion = 0
 
 st.title("Centro de Control DataOps - Pipeline IoT")
 st.markdown("### Arquitectura Medallón (Capa Bronce vs Capa Oro)")
@@ -45,20 +46,22 @@ while True:
                 df_limpio = pd.DataFrame(res_oro.get("data", []))
                 df_crudo = pd.DataFrame(res_bronce.get("data", []))
                 
-                # 1. Leer totales reales desde la API (La fuente de la verdad)
+                # Totales reales de la base de datos
                 total_crudos_db = res_bronce.get("total_db", 0)
                 total_limpios_db = res_oro.get("total_db", 0)
-                total_descartados_db = max(0, total_crudos_db - total_limpios_db)
                 
-                # 2. Calcular velocidad (Deltas por actualización)
+                # Calcular velocidad (Deltas puros)
                 delta_crudos = max(0, total_crudos_db - st.session_state.last_total_crudos)
                 delta_limpios = max(0, total_limpios_db - st.session_state.last_total_exitosos)
-                delta_descartes = max(0, delta_crudos - delta_limpios)
                 
-                # 3. Guardar en memoria para el próximo ciclo
-                if st.session_state.last_total_crudos == 0:  # Evitar pico inicial gigante
-                    delta_crudos, delta_limpios, delta_descartes = 0, 0, 0
+                # Si no es la primera carga, sumar las anomalías detectadas en este micro-lote
+                if st.session_state.last_total_crudos > 0:
+                    delta_anomalias = max(0, delta_crudos - delta_limpios)
+                    st.session_state.anomalias_sesion += delta_anomalias
+                else:
+                    delta_anomalias = 0
                     
+                # Actualizar memoria para el próximo ciclo
                 st.session_state.last_total_crudos = total_crudos_db
                 st.session_state.last_total_exitosos = total_limpios_db
                 
@@ -96,8 +99,8 @@ while True:
                     with sub_col2:
                         st.metric(
                             label="⚠️ Descartes Estimados", 
-                            value=f"{total_descartados_db} recs",
-                            delta=f"+{delta_descartes} anomalías",
+                            value=f"{st.session_state.anomalias_sesion} recs",
+                            delta=f"+{delta_anomalias} anomalías",
                             delta_color="inverse" 
                         )
                     

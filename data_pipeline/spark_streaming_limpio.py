@@ -17,9 +17,10 @@ DB_NAME = os.getenv("DB_NAME", "postgres")
 DB_USER2 = os.getenv("DB_USER2", "postgres")
 DB_PASSWORD2 = os.getenv("DB_PASSWORD2", "postgres")
 
-# URLs para Capa Oro (Actual) y Capa Bronce (Nueva db_telemetria_cruda)
+# URLs para Capa Oro y Capa Bronce unificadas con el .env
+DB_NAME2 = os.getenv("DB_NAME2", "postgres")
 JDBC_URL_GOLD = f"jdbc:postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}"
-JDBC_URL_BRONZE = f"jdbc:postgresql://postgres_raw:5432/telemetria_cruda_db"
+JDBC_URL_BRONZE = f"jdbc:postgresql://postgres_raw:5432/{DB_NAME2}"
 print("🔐 Variables de entorno y URLs de conexión preparadas con credenciales independientes.")
 
 # 2. Inicializar SparkSession
