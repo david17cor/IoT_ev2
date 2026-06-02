@@ -8,53 +8,47 @@ services:
     ports:
       - "29092:29092"
     environment:
-      # Configuraciones base de KRaft
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: 'broker,controller'
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk' # KRaft exige un ID de clúster en base64 estático
-      
-      # Configuración de red y escuchas
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
       KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:29092'
       KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      
-      # Evita errores con tópicos en entornos de un solo nodo
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    networks:
+      - dataops_network
 
   postgres:
-  # ==========================================
-  # CONTENEDOR 1: Base de Datos Procesada (Plata/Oro)
-  # ==========================================
     image: postgres:15
+    container_name: contenedor-procesado
     environment:
-      POSTGRES_USER: admin_dataops
-      POSTGRES_PASSWORD: password_seguro_123
-      POSTGRES_DB: iot_predictivo
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     ports:
       - "5435:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - dataops_network
 
-  # ==========================================
-  # CONTENEDOR 2: Base de Datos Cruda (Bronce)
-  # ==========================================
   postgres_raw:
     image: postgres:15-alpine
     container_name: db_telemetria_cruda
     environment:
-      POSTGRES_USER: admin_crudos 
-      POSTGRES_PASSWORD: contra_cruda123
-      POSTGRES_DB: telemetria_cruda_db
+      POSTGRES_USER: ${DB_USER2}
+      POSTGRES_PASSWORD: ${DB_PASSWORD2}
+      POSTGRES_DB: ${DB_NAME2}
     ports:
-      - "5433:5432" # Lo exponemos en el puerto 5433 para no chocar con el otro
-    networks:
-      - dataops_network
+      - "5433:5432"
     volumes:
       - pg_data_raw:/var/lib/postgresql/data
+    networks:
+      - dataops_network
 
   spark-streaming:
     build:
@@ -68,7 +62,8 @@ services:
       - SPARK_MODE=worker
       - DB_HOST=postgres
       - DB_PORT=5432
-    # Usamos la red interna de Docker para conectarnos a Kafka y Postgres
+    networks:
+      - dataops_network
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -77,10 +72,13 @@ services:
       context: ./backend_api
     depends_on:
       - postgres
+      - postgres_raw
     env_file:
       - .env
     ports:
       - "8000:8000"
+    networks:
+      - dataops_network
     
   frontend-app:
     build:
@@ -89,6 +87,8 @@ services:
       - backend-api
     ports:
       - "8501:8501"
+    networks:
+      - dataops_network
     command: streamlit run app_frontend.py --server.port=8501 --server.address=0.0.0.0 --server.enableCORS=false --server.enableXsrfProtection=false
 
   productor-iot:
@@ -99,7 +99,14 @@ services:
     environment:
       - KAFKA_BROKER=kafka:9092
       - PYTHONBUFFERED=1
+    networks:
+      - dataops_network
     restart: always
 
 volumes:
   postgres_data:
+  pg_data_raw:
+
+networks:
+  dataops_network:
+    driver: bridge

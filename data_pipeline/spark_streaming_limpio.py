@@ -6,17 +6,21 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StructType, StructField, StringType
 
-# 1. Cargar variables de entorno
+# 1. Cargar variables de entorno (Capa Oro)
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
 DB_HOST = os.getenv("DB_HOST", "postgres") 
 DB_PORT = os.getenv("DB_PORT", "5432") 
 DB_NAME = os.getenv("DB_NAME", "postgres")
 
+# (CORREGIDO): Cargar credenciales específicas para Capa Bronce
+DB_USER2 = os.getenv("DB_USER2", "postgres")
+DB_PASSWORD2 = os.getenv("DB_PASSWORD2", "postgres")
+
 # URLs para Capa Oro (Actual) y Capa Bronce (Nueva db_telemetria_cruda)
 JDBC_URL_GOLD = f"jdbc:postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}"
 JDBC_URL_BRONZE = f"jdbc:postgresql://postgres_raw:5432/telemetria_cruda_db"
-print("🔐 Variables de entorno y URLs de conexión preparadas.")
+print("🔐 Variables de entorno y URLs de conexión preparadas con credenciales independientes.")
 
 # 2. Inicializar SparkSession
 print("⏳ Iniciando motor Apache Spark y descargando dependencias (Kafka + JDBC)...")
@@ -56,19 +60,23 @@ def process_medallion_batch(batch_df, batch_id):
     total_crudos = batch_df.count()
     
     if total_crudos > 0:
+        # --- 🛡️ CAPA BRONCE: Guardar dato 100% crudo (Aislado en su propio try) ---
         try:
-            # --- 🛡️ CAPA BRONCE: Guardar dato 100% crudo ---
             batch_df.write \
                 .format("jdbc") \
                 .option("url", JDBC_URL_BRONZE) \
                 .option("dbtable", "raw_records") \
-                .option("user", DB_USER) \
-                .option("password", DB_PASSWORD) \
+                .option("user", DB_USER2) \
+                .option("password", DB_PASSWORD2) \
                 .option("driver", "org.postgresql.Driver") \
                 .mode("append") \
                 .save()
+            print(f"📦 Capa Bronce: {total_crudos} registros crudos guardados en batch {batch_id}.", flush=True)
+        except Exception as e:
+            print(f"❌ Error crítico en Capa Bronce (Batch {batch_id}): {e}", flush=True)
             
-            # --- 🥇 CAPA ORO: Transformación y Limpieza ---
+        # --- 🥇 CAPA ORO: Transformación y Limpieza (Aislado en su propio try) ---
+        try:
             df_clean = batch_df \
                 .withColumn("timestamp_lectura", to_timestamp(col("timestamp_lectura"), "dd/MM/yyyy HH:mm:ss")) \
                 .withColumn("id_maquina", lower(col("ID_Maquina"))) \
@@ -94,11 +102,11 @@ def process_medallion_batch(batch_df, batch_id):
                     .option("driver", "org.postgresql.Driver") \
                     .mode("append") \
                     .save()
-            
-            print(f"✅ Batch {batch_id} procesado: {total_crudos} crudos -> {registros_validos} limpios.", flush=True)
-
+                print(f"🥇 Capa Oro: {registros_validos} registros limpios guardados en batch {batch_id}.", flush=True)
+            else:
+                print(f"⚠️ Batch {batch_id} no generó registros válidos para Capa Oro (todas fueron anomalías).", flush=True)
         except Exception as e:
-            print(f"❌ Error en base de datos al guardar batch {batch_id}: {e}", flush=True)
+            print(f"❌ Error crítico en Capa Oro (Batch {batch_id}): {e}", flush=True)
             
     batch_df.unpersist()
 
