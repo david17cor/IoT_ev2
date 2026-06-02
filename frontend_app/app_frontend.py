@@ -55,11 +55,8 @@ while True:
                 delta_limpios = max(0, total_limpios_db - st.session_state.last_total_exitosos)
                 
                 # Si no es la primera carga, sumar las anomalías detectadas en este micro-lote
-                if st.session_state.last_total_crudos > 0:
-                    delta_anomalias = max(0, delta_crudos - delta_limpios)
-                    st.session_state.anomalias_sesion += delta_anomalias
-                else:
-                    delta_anomalias = 0
+                st.session_state.anomalias_sesion = max(0, total_crudos_db - total_limpios_db)
+                delta_anomalias = max(0, delta_crudos - delta_limpios)
                     
                 # Actualizar memoria para el próximo ciclo
                 st.session_state.last_total_crudos = total_crudos_db
