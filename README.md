@@ -1,94 +1,212 @@
-# 🏭 Centro de Control DataOps - Pipeline IoT en Tiempo Real
+🏭 Centro de Control DataOps - Pipeline IoT en Tiempo Real (GCP Cloud Edition)
+Este proyecto implementa una arquitectura de datos End-to-End distribuida, resiliente y de alta disponibilidad para la ingesta, persistencia inmutable, procesamiento analítico continuo, limpieza y anonimización en tiempo real de telemetría industrial (IoT) proveniente de 10 máquinas CNC simuladas operadas de forma rotativa.
 
-![Versión](https://img.shields.io/badge/Versi%C3%B3n-1.2-blue)
-![Python](https://img.shields.io/badge/Python-3.9+-yellow)
-![Apache Spark](https://img.shields.io/badge/Apache_Spark-Streaming-orange)
-![Apache Kafka](https://img.shields.io/badge/Apache_Kafka-Broker-black)
-![FastAPI](https://img.shields.io/badge/FastAPI-REST-green)
-![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-red)
+El núcleo del ecosistema se rige bajo principios avanzados de DataOps, operando con éxito dentro de una infraestructura robusta contenerizada en la nube pública (Google Cloud Platform). El diseño aplica una Arquitectura Medallón física para transformar flujos de datos crudos e inestables en registros listos para la analítica de negocio (Golden Records), asegurando la gobernanza de datos y el cumplimiento estricto de la legislación chilena (Ley 19.628) sobre protección de la privacidad.
 
-Este proyecto implementa una arquitectura de datos **End-to-End** robusta para la ingesta, procesamiento continuo, limpieza y anonimización en tiempo real de telemetría industrial (IoT) proveniente de maquinaria CNC distribuida. 
+🏗️ Arquitectura de la Solución e Infraestructura en la Nube
+El ecosistema completo opera de forma contenerizada dentro de una máquina virtual Compute Engine (e2-standard-2: 2 vCPUs, 8 GB de RAM) en Google Cloud Platform. Los servicios interactúan de forma aislada dentro de la red interna de Docker (dataops_network), aplicando el principio de mínimo privilegio para mitigar la superficie de ataques en la nube pública.
 
-El núcleo del proyecto se enfoca en aplicar principios avanzados de **DataOps** para transformar flujos de datos crudos e inestables en registros listos para la analítica de negocio (*Golden Records*), asegurando gobernanza de datos y el cumplimiento estricto de la legislación chilena sobre protección de la privacidad.
+Plaintext
++-----------------------------------------------------------------------------------------+
+|  GOOGLE CLOUD PLATFORM (GCP) - INSTANCIA VM (e2-standard-2)                             |
+|                                                                                         |
+|  +-----------------------------------------------------------------------------------+  |
+|  |  DOCKER HOST (Red Aislada: dataops_network)                                       |  |
+|  |                                                                                   |  |
+|  |   +--------------------------+                +-------------------------------+   |  |
+|  |   |         INGESTA          |  JSON Events   |            INGESTA            |   |  |
+|  |   |   Productor IoT Python   | -------------> |   Apache Kafka (modo KRaft)   |   |  |
+|  |   |   (Simula 10 CNCs y      |                |   (Topic: telemetria_sucia)   |   |  |
+|  |   |   operarios rotativos)   |                |   [Puerto Interno: 29092]     |   |  |
+|  |   +--------------------------+                +-------------------------------+   |  |
+|  |                                                 /                           \     |  |
+|  |                                                /                             \    |  |
+|  |                               Carga Inmutable /                               \   |  |
+|  |                                (Datos Crudos /                                 \  |  |
+|  |                               sin procesar) /                                   |  |
+|  |                                            v                                    |  |
+|  |                  +------------------------------+                               |  |
+|  |                  |     ALMACENAMIENTO BRONZE    |                               |  |
+|  |                  |   PostgreSQL (Puerto 5433)   |                               |  |
+|  |                  | (Auditoría, contiene -999°C  |                               |  |
+|  |                  |  e información sensible)     |                               |  |
+|  |                  +------------------------------+                               |  |
+|  |                                                                 Stream Original |  |
+|  |                                                                 para Limpieza   |  |
+|  |                                                                                 v  |  |
+|  |                                               +-------------------------------+   |  |
+|  |                                               |         PROCESAMIENTO         |   |  |
+|  |                                               |    Apache Spark Streaming     |   |  |
+|  |                                               | (Data Quality + Ley 19.628)   |   |  |
+|  |                                               | [Operación Interna Aislada]   |   |  |
+|  |                                               +-------------------------------+   |  |
+|  |                                                               |                   |  |
+|  |                                               Carga de Datos  |                   |  |
+|  |                                               Curados (Oro)   v                   |  |
+|  |                                             +-----------------------------------+ |  |
+|  |                                             |        ALMACENAMIENTO GOLD        | |  |
+|  |                                             |     PostgreSQL (Puerto 5435)      | |  |
+|  |                                             | (Datos Limpios, Hashing SHA-256   | |  |
+|  |                                             |    y libres de Anomalías)         | |  |
+|  |                                             +-----------------------------------+ |  |
+|  |                                                                       ^           |  |
+|  |                                                                       | Consulta  |  |
+|  |                                                                       | SQL       |  |
+|  |                                                                       v           |  |
+|  |                                                             +-------------------+ |  |
+|  |                                                             |     SERVICIOS     | |  |
+|  |                                                             |    FastAPI API    | |  |
+|  |                                                             |   (Puerto 8000)   | |  |
+|  |                                                             +-------------------+ |  |
+|  |                                                                       |           |  |
+|  |                                                                       | Endpoints |  |
+|  |                                                                       | JSON      |  |
+|  |                                                                       v           |  |
+|  |                                                             +-------------------+ |  |
+|  |                                                             |   VISUALIZACIÓN   | |  |
+|  |                                                             |   Streamlit App   | |  |
+|  |                                                             |   (Puerto 8501)   | |  |
+|  |                                                             +-------------------+ |  |
+|  +-----------------------------------------------------------------------|-----------+  |
++--------------------------------------------------------------------------|--------------+
+                                                                           |
+                                                                           | Acceso HTTP
+                                                                           v
+                                                                 +-------------------+
+                                                                 |   MONITOREO WEB   |
+                                                                 | Navegador del     |
+                                                                 | Ingeniero de Datos|
+                                                                 +-------------------+
+📦 Componentes del Ecosistema Dockerizado
+Productor IoT (productor-iot): Módulo en Python que simula de manera estocástica la telemetría industrial de 10 estaciones CNC (MAQ-CNC-01 a MAQ-CNC-10) y 15 operadores rotativos. Inyecta intencionalmente ruido estructural, descalibraciones de sensor y datos sensibles sin procesar.
 
----
+Apache Kafka KRaft (kafka): Broker de mensajería asíncrona de alto rendimiento que unifica la gestión de metadatos y almacenamiento en un único proceso. Elimina por completo la necesidad de ZooKeeper, reduciendo el consumo de hardware en la VM y garantizando latencias de absorción de eventos inferiores a los 10 milisegundos en el topic telemetria_sucia.
 
-## 🏗️ Arquitectura de la Solución
+Almacenamiento Capa Bronze (postgres-bronze - Puerto 5433): Instancia relacional PostgreSQL inmutable. Recibe una copia exacta de los eventos JSON directamente desde Kafka, actuando como un repositorio histórico de auditoría cruda con el ruido y la información personal intacta.
 
-El pipeline está diseñado bajo una arquitectura de microservicios completamente dockerizados que operan de forma síncrona:
+Procesamiento de Eventos (spark-streaming): Motor de cálculo distribuido ejecutado de forma silenciosa dentro de la red privada de Docker. Consume el stream original de Kafka, aplica las reglas de Data Quality, las directivas de ciberseguridad de la Ley 19.628, y distribuye las cargas. No expone puertos web al exterior, reduciendo drásticamente la superficie de vulnerabilidad de la máquina virtual.
 
-1. **Productor IoT (Simulador):** Emula los sensores físicos de las máquinas CNC, inyectando ráfagas continuas de datos.
-2. **Apache Kafka (KRaft Mode):** Actúa como la capa de mensajería intermedia distribuida de alta disponibilidad, absorbiendo la presión de la ingesta masiva sin pérdida de mensajes.
-3. **Apache Spark Streaming:** Motor analítico que procesa la data en caliente mediante micro-lotes, ejecutando transformaciones tipográficas, lógicas de negocio y seguridad.
-4. **PostgreSQL:** Repositorio transaccional que almacena exclusivamente los datos limpios y autorizados.
-5. **DataOps Pipelines API (FastAPI):** Capa intermedia expuesta en el puerto `8000` con documentación interactiva Swagger/OAS 3.1. Ofrece endpoints como `/api/telemetria` para disponibilizar el estado operativo de forma segura y estandarizada.
-6. **Centro de Control (Streamlit):** Frontend reactivo (puerto `8501`) diseñado bajo un enfoque corporativo oscuro para el monitoreo visual inmediato del rendimiento del pipeline.
+Almacenamiento Capa Gold (postgres-gold - Puerto 5435): Instancia transaccional PostgreSQL limpia y optimizada. Almacena única y exclusivamente los registros depurados que han superado con éxito todos los controles de calidad de la organización.
 
----
+DataOps Pipelines API (fastapi-api - Puerto 8000): Capa de abstracción y servicios web expuesta de forma segura. Interactúa exclusivamente con la Capa Gold, proporcionando endpoints JSON estandarizados bajo la especificación OpenAPI (Swagger UI) para su consumo externo controlado.
 
-## 📊 Estrategia de Calidad de Datos & Gobernanza (DataOps)
+Centro de Control Analítico (streamlit-dashboard - Puerto 8501): Interfaz gráfica de usuario reactiva, diseñada bajo estándares corporativos oscuros. Consume los datos de la API para visualizar el estado de la planta "al vuelo", alertar sobre eventos de falla_inminente y contrastar las métricas absolutas de la arquitectura Medallón.
 
-El dashboard expone una separación clara en paralelo del flujo de información para validar las transformaciones operadas por el pipeline:
+🛠️ Principios de Calidad, Gobernanza y Privacidad (DataOps)
+El pipeline valida y transforma la información segmentando los flujos a través del Centro de Control para auditar la correcta aplicación de las reglas analíticas:
 
-### 🛑 1. Bloque IZQUIERDO: Datos Crudos de la Planta
-Representa el estado original del sensor antes de ser procesado. Presenta las siguientes deficiencias simuladas de la realidad industrial:
-* **Anomalías Críticas de Hardware:** Lecturas fuera de rango o erráticas de temperatura marcando un valor centinela de `-999.0 °C`.
-* **Inconsistencia de Tipos:** Valores de `RPM` formateados incorrectamente como cadenas de texto usando comas en vez de puntos decimales estándar (`1465,68`).
-* **Exposición de Datos Sensibles:** Datos del personal de planta expuestos sin ningún tipo de resguardo ni estructura.
+🛑 Capa Bronze: Datos Crudos de la Planta (Espejo de Ingesta)
+Representa la entrada inalterada de los sensores periféricos (Edge), visibilizando las deficiencias del entorno industrial:
 
-### ❇️ 2. Bloque DERECHO: Datos Curados y Seguros
-Muestra el resultado final tras el paso de los datos por las reglas del pipeline de Spark, garantizando calidad técnica y cumplimiento normativo:
-* **Filtro de Anomalías Térmicas:** Remoción y descarte inmediato de registros corruptos (`-999.0 °C`) para no alterar los modelos predictivos de mantenimiento.
-* **Estandarización Numérica:** Formateo y tipado correcto de la métrica `RPM`.
-* **Privacidad por Diseño (Cumplimiento Ley 19.628 de Chile):**
-  * **Estructuración:** Extracción de identificadores limpios del operador (`op_id`).
-  * **Anonimización Irreversible:** Aplicación de algoritmo **Hashing SHA-256** sobre la identidad del operario.
-  * **Enmascaramiento Dinámico (Masking):** Ocultamiento parcial de la cédula de identidad en la columna `rut_op` (ej: `XX.XXX.XX8-5`), protegiendo los datos personales sin romper la trazabilidad lógica de las auditorías.
+Anomalías Críticas de Hardware: Captura ráfagas de error donde un sensor térmico dañado registra lecturas centinela absurdas de -999.0 °C.
 
----
+Inconsistencia Estructural: Captura valores de velocidad angular (RPM) formateados erróneamente como cadenas de texto (String) con comas decimales (1465,68), lo que corrompe los modelos analíticos basados en floats.
 
-## 🚀 Historial de Evolución (Changelog)
+Exposición de Datos de Personal: Exposición en texto plano del Nombre del operador y su Cédula de Identidad (RUT).
 
-### 📌 Versión 1.1 - *Infraestructura Base*
-* Conexión exitosa del flujo streaming completo entre Kafka, Spark y PostgreSQL.
-* Despliegue de la API REST intermedia con FastAPI exponiendo el JSON de telemetría.
-* Creación del Frontend inicial en Streamlit con diseño de pantalla dividida, sufriendo de volatilidad en los contadores métricos en cada ciclo de actualización.
+❇️ Capa Gold: Datos Curados y Seguros (Golden Records)
+Muestra el resultado tras el procesamiento por micro-lotes en Apache Spark Streaming, garantizando estabilidad analítica y cumplimiento legal:
 
-### ✨ Versión 1.2 - *Observabilidad, Estado y Rendimiento (Versión Actual)*
-Esta entrega introduce mejoras de fondo tanto en la estabilidad del procesamiento como en la experiencia interactiva del usuario:
-* **🔧 Mitigación de Asfixia de Hilos en Spark (*Thread Starvation*):** Se corrigió un bug crítico en la lógica de Spark Streaming donde llamadas ansiosas reiteradas (`.isEmpty()`) bloqueaban el pool de conexiones. Se reestructuró el flujo implementando `.cache()` y persistencia optimizada, logrando un caudal constante de **20 Eventos/s** sin degradación de memoria.
-* **🧠 Persistencia de Métricas Operativas:** Integración de `st.session_state` en el frontend corporativo. Las tarjetas superiores ahora acumulan de forma permanente el histórico global de registros (`Total Crudos Recibidos`, `Procesados con Éxito`, `Total Descartados`) sin resetearse a cero durante los refrescos continuos de pantalla.
-* **🎲 Simulación de Estrés Realista:** Se elevó el abanico probabilístico de fallas a un rango dinámico del **20% al 30%** empleando selección aleatoria de índices, permitiendo observar fluctuaciones orgánicas y realistas en la tasa de descartes del centro de control.
-* **⚡ Animación de Parpadeo Interactiva (Blinking Deltas):** Mediante la inyección de estilos CSS avanzados (`@keyframes latido`), las etiquetas delta de incremento (`+20 nuevos`, `+18 ok`, `+2 anomalías`) ejecutan un micropulso visual con cada actualización de lote cada 2 segundos, incrementando radicalmente la experiencia interactiva de monitoreo en vivo.
+Aislamiento de Anomalías Térmicas: Detección de ráfagas aberrantes (-999.0 °C). El sistema las aísla de la base Gold para no sesgar las métricas de mantenimiento predictivo,允许 contabilizar el volumen exacto de descartes semánticos.
 
----
+Estandarización y Tipado Numérico: Conversión en tránsito de cadenas de texto a formato de punto flotante estándar (Float) sustituyendo comas por puntos en las variables de RPM.
 
-## 🛠️ Instrucciones de Despliegue Rápido
+Privacidad por Diseño (Cumplimiento de la Ley Chilena 19.628):
 
-Para replicar el entorno completo de forma local, ejecuta los siguientes comandos en tu terminal:
+Seudonimización Irreversible: Aplicación de un algoritmo de hash criptográfico de una sola vía SHA-256 sobre los nombres de los operadores, transformándolos en firmas digitales fijas de 64 caracteres útiles para la correlación de modelos predictivos sin revelar la identidad real del personal.
 
-1. Clonar el repositorio y acceder al directorio:
-   ```bash
-   git clone [https://github.com/david17cor/IoT_ev2.git](https://github.com/david17cor/IoT_ev2.git)
-   cd IoT_ev2
+Enmascaramiento Parcial (Data Masking): Ocultamiento destructivo de los caracteres iniciales del RUT (ej. transformando 19.384.725-K en *.*.XX8-5) para resguardar la privacidad en la visualización pública del tablero sin romper la trazabilidad de auditorías en planta.
 
-2. Construir y levantar la orquestación de contenedores en segundo plano:
-   ```bash
-   docker-compose up -d --build
+⚙️ Guía de Instalación y Despliegue del Pipeline
+Sigue paso a paso estas instrucciones para clonar, aprovisionar y levantar el ecosistema completo en una máquina virtual de Google Cloud Platform (o entorno local compatible con Docker):
 
-3. Puntos de Acceso Locales:
-   
-   - Dashboard de Monitoreo (Streamlit): http://localhost:8501
+📋 1. Requisitos Previos del Sistema
+Asegúrate de contar con los siguientes componentes instalados en tu sistema operativo:
 
-   - Documentación Interactiva de la API (Swagger UI): http://localhost:8000/docs
+Git instalado (git --version)
 
----
+Docker Engine versión 20.10+ (docker --version)
 
-## 🗺️ Roadmap y Próximos Pasos
-El desarrollo de este pipeline es de mejora continua. Las próximas iteraciones apuntan a la escalabilidad en la nube pública:
+Docker Compose v2 instalado (docker compose version)
 
-☁️ Migración a Cloud (Google Cloud Platform): Despliegue de la arquitectura dockerizada completa en una máquina virtual de Compute Engine para simular un entorno de producción accesible globalmente y sin dependencia de hardware local.
+🔑 2. Configuración de Reglas de Cortafuegos en GCP (Firewall Inbound)
+Si despliegas el pipeline en una Máquina Virtual de Google Cloud, antes de ejecutar los contenedores debes permitir el tráfico web externo hacia los servicios expuestos. Ve a GCP -> Red de VPC -> Cortafuegos y crea una regla de entrada (Inbound) con los siguientes parámetros:
 
-🔒 Hardening de Seguridad: Implementación de variables de entorno cifradas y gestión de accesos (IAM) para la base de datos PostgreSQL en el entorno cloud.
+Filtros de origen: 0.0.0.0/0 (o la IP específica de tu red interna).
 
-📈 Alertas Automatizadas: Integración de notificaciones vía webhook (Ej: Slack/Teams) cuando la tasa de anomalías térmicas supere el 30% en una ventana de tiempo de 5 minutos.
+Protocolos y puertos especificados: Selecciona TCP y abre los puertos de explotación:
+
+5433 (Acceso externo restringido a PostgreSQL Bronze)
+
+5435 (Acceso externo a PostgreSQL Gold)
+
+8000 (Acceso HTTP a la API REST de FastAPI)
+
+8501 (Acceso HTTP al Centro de Control de Streamlit)
+
+Nota de Ciberseguridad: El puerto 29092 (Kafka) y el procesamiento de Spark operan de forma interna dentro de la red del Docker Host y no deben abrirse en el Firewall de GCP.
+
+🚀 3. Clonación del Repositorio y Despliegue de Contenedores
+Abre una terminal SSH dentro de tu máquina virtual y ejecuta los siguientes comandos:
+
+Bash
+# 1. Clonar el repositorio oficial del proyecto
+git clone https://github.com/david17cor/IoT_ev2.git
+
+# 2. Acceder al directorio raíz de la aplicación
+cd IoT_ev2
+
+# 3. Construir las imágenes personalizadas y levantar los 7 contenedores en segundo plano
+docker compose up -d --build
+🔍 4. Verificación del Estado de la Infraestructura
+Para asegurarte de que todos los microservicios se encuentran estables y operando en la red interna de la nube, ejecuta:
+
+Bash
+docker ps
+Deberás observar los 7 contenedores listados con el estado Up y sus respectivos mapeos de puertos hacia la IP de la Máquina Virtual.
+
+🎮 Guía de Operación y Funcionamiento del Ecosistema
+Una vez que la infraestructura Docker se encuentra activa en Google Cloud, el pipeline opera de forma autónoma bajo el siguiente flujo secuencial de datos:
+
+Step 1: Generación e Ingesta Asíncrona
+El contenedor productor-iot inicia de forma automatizada la simulación, inyectando un flujo transaccional continuo a razón de 20 eventos por segundo directamente al broker de Apache Kafka KRaft. Los datos viajan serializados en formato JSON crudo con marcas de tiempo relativas.
+
+Step 2: Persistencia Inmutable Doble (Capa Bronze directa)
+Apenas los datos tocan el topic telemetria_sucia en Kafka, el pipeline ejecuta un ramal directo de persistencia hacia la base de datos PostgreSQL Bronze (Puerto 5433). Este proceso graba la información tal cual como fue emitida por el sensor industrial, sirviendo como respaldo de auditoría inalterable.
+
+Step 3: Procesamiento Analítico y Limpieza (Spark)
+En paralelo, Apache Spark Streaming lee el flujo de Kafka mediante micro-lotes continuos de 2 segundos. En memoria RAM, aplica las máscaras lógicas para descartar los registros térmicos de -999.0 °C, castea los strings numéricos de las RPM y ejecuta los algoritmos criptográficos de enmascaramiento de RUT y hashing SHA-256 para dar cumplimiento a la Ley 19.628. Tras purgar la data, Spark gatilla el comando de escritura en la base de datos PostgreSQL Gold (Puerto 5435).
+
+Step 4: Explotación y Acceso a los Puntos de Control
+Para interactuar con el sistema en tiempo real desde tu navegador web, utiliza la IP Pública asignada a tu instancia de Google Cloud Platform a través de las siguientes URLs oficiales:
+
+📊 Centro de Control Industrial (Streamlit Dashboard): http://<TU_IP_PUBLICA_GCP>:8501
+Interfaz interactiva para observar el comportamiento dinámico de las 10 máquinas CNC. Cuenta con persistencia de métricas mediante estados de sesión para mitigar la pérdida de historial ante recargas del navegador (F5).
+
+🔌 Documentación de Servicios REST (FastAPI Swagger UI): http://<TU_IP_PUBLICA_GCP>:8000/docs
+Capa de servicios que expone endpoints JSON normalizados como /api/telemetria para disponibilizar los Golden Records de la capa Gold de forma segura a otras aplicaciones de la empresa.
+
+📈 Historial de Evolución Técnica (Changelog)
+📌 Versión 1.1 - Estructura Base e Ingesta Diferenciada
+Conexión inicial del flujo streaming completo entre Kafka, Spark y PostgreSQL de forma local.
+
+Despliegue de la API REST intermedia con FastAPI exponiendo la telemetría curada.
+
+Creación del Frontend inicial en Streamlit con diseño de pantalla dividida, sufriendo de volatilidad en los contadores métricos globales ante actualizaciones automáticas de lote.
+
+✨ Versión 1.2 - Cloud Deployment, KRaft Mode, Separación Medallón y Persistencia de Estados (Versión Actual)
+Esta entrega consolida la madurez del proyecto mediante la migración a un entorno de nube productivo y la optimización drástica de recursos:
+
+☁️ Migración Completa a Google Cloud Platform: Despliegue exitoso de la arquitectura contenerizada en una instancia productiva de Compute Engine de GCP con apertura segura de puertos mediante reglas de Firewall perimetrales.
+
+🚀 Implementación de Apache Kafka Modo KRaft: Refactorización de la capa de ingesta para operar de forma nativa bajo el protocolo KRaft. Eliminación absoluta de la dependencia de ZooKeeper, logrando un ahorro masivo de uso de vCPU y memoria RAM dentro de la máquina virtual.
+
+🧱 Consolidación de Arquitectura Medallón Multi-Instancia: Separación física del almacenamiento de datos. Se desplegó de manera paralela el repositorio de datos crudos (Capa Bronze en puerto 5433) y el repositorio de datos curados analíticos (Capa Gold en puerto 5435), asegurando la integridad referencial y la gobernanza de datos exigida por los estándares internacionales de DataOps.
+
+🔒 Hardening de Seguridad de Procesamiento: Aislamiento del contenedor de Apache Spark Streaming dentro de la red interna de Docker, removiendo la exposición de sus puertos hacia el exterior de la máquina virtual como estrategia de seguridad activa contra intrusiones.
+
+🔧 Mitigación de Asfixia de Hilos en Spark (Thread Starvation): Corrección analítica en la lógica de procesamiento de Spark Streaming, donde llamadas síncronas reiteradas (.isEmpty()) bloqueaban el pool de conexiones en la VM. Se optimizó el flujo implementando .cache() y persistencia sintonizada, logrando un caudal estable de 20 eventos/s sin degradación de memoria.
+
+🧠 Control de Amnesia de Interfaz (Session State): Integración avanzada de st.session_state en el código de Streamlit. Las tarjetas analíticas acumulan de forma permanente las métricas operacionales (Total Crudos Recibidos, Procesados con Éxito, Total Descartados) sin resetearse a cero durante los refrescos cíclicos del navegador (F5).
+
+🎲 Simulación de Estrés Realista y Blinking Deltas: Elevación del abanico probabilístico de fallas térmicas a un rango dinámico del 20% al 30%, permitiendo observar fluctuaciones orgánicas en la tasa de descartes del centro de control, acompañado de micropulsos visuales CSS (@keyframes latido) que se ejecutan cada 2 segundos con cada actualización de lote.
