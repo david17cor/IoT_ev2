@@ -19,9 +19,6 @@ El núcleo del ecosistema se rige bajo principios avanzados de **DataOps**, oper
 El ecosistema completo opera de forma contenerizada dentro de una máquina virtual **Compute Engine (`e2-standard-2`: 2 vCPUs, 8 GB de RAM)** en Google Cloud Platform. Los servicios interactúan de forma aislada dentro de la red interna de Docker (`dataops_network`), aplicando el principio de mínimo privilegio para mitigar la superficie de ataques en la nube pública.
 
 ### 🗺️ Mapa de Arquitectura y Topología de Red
-> 💡 *Para visualizar el mapa técnico interactivo, arrastra el archivo de tu diagrama final (con la leyenda de puertos) dentro de este espacio en GitHub:*
-
-![Mapa de Arquitectura del Pipeline IoT](./path_a_tu_imagen.png)
 
 <img width="691" height="1021" alt="diagramadefinitivoo" src="https://github.com/user-attachments/assets/982889ed-4449-49dc-964d-be7691663c00" />
 
