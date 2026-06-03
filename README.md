@@ -100,23 +100,6 @@ Para asegurarte de que todos los microservicios se encuentran estables y operand
 docker ps
 
 
-🎮 Guía de Operación y Funcionamiento del Ecosistema
-Una vez que la infraestructura Docker se encuentra activa en Google Cloud, el pipeline opera de forma autónoma bajo el siguiente flujo secuencial de datos:
-
-Step 1: Generación e Ingesta Asíncrona: El contenedor productor-iot inicia de forma automatizada la simulación, inyectando un flujo transaccional continuo a razón de 20 eventos por segundo directamente al broker de Apache Kafka KRaft. Los datos viajan serializados en formato JSON crudo con marcas de tiempo relativas.
-
-Step 2: Persistencia Inmutable Doble (Capa Bronze directa): Apenas los datos tocan el topic telemetria_sucia en Kafka, el pipeline ejecuta un ramal directo de persistencia hacia la base de datos PostgreSQL Bronze (Puerto 5433). Este proceso graba la información tal cual como fue emitida por el sensor industrial, sirviendo como respaldo de auditoría inalterable.
-
-Step 3: Procesamiento Analítico y Limpieza (Spark): En paralelo, Apache Spark Streaming lee el flujo de Kafka mediante micro-lotes continuos de 2 segundos. En memoria RAM, aplica las máscaras lógicas para descartar los registros térmicos de -999.0 °C, castea los strings numéricos de las RPM y ejecuta los algoritmos criptográficos de enmascaramiento de RUT y hashing SHA-256 para dar cumplimiento a la Ley 19.628. Tras purgar la data, Spark gatilla el comando de escritura en la base de datos PostgreSQL Gold (Puerto 5435).
-
-Step 4: Explotación y Acceso a los Puntos de Control: Para interactuar con el sistema en tiempo real desde tu navegador web, utiliza la IP Pública asignada a tu instancia de Google Cloud Platform a través de las siguientes URLs oficiales:
-
-📊 Centro de Control Industrial (Streamlit Dashboard): http://<TU_IP_PUBLICA_GCP>:8501
-Interfaz interactiva para observar el comportamiento dinámico de las 10 máquinas CNC. Cuenta con persistencia de métricas mediante estados de sesión para mitigar la pérdida de historial ante recargas del navegador (F5).
-
-🔌 Documentación de Servicios REST (FastAPI Swagger UI): http://<TU_IP_PUBLICA_GCP>:8000/docs
-Capa de servicios que expone endpoints JSON normalizados como /api/telemetria para disponibilizar los Golden Records de la capa Gold de forma segura a otras aplicaciones de la empresa.
-
 📈 Historial de Evolución Técnica (Changelog)
 📌 Versión 1.1 - Estructura Base e Ingesta Diferenciada
 Conexión inicial del flujo streaming completo entre Kafka, Spark y PostgreSQL de forma local.
