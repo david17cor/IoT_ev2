@@ -89,6 +89,30 @@ git clone [https://github.com/david17cor/IoT_ev2.git](https://github.com/david17
 # 2. Acceder al directorio raíz de la aplicación
 cd iot_ev2
 
+### ⚙️ Paso 2.5: Configuración de Variables de Entorno (.env)
+Por lineamientos estrictos de ciberseguridad y buenas prácticas de DataOps, el archivo con las credenciales de bases de datos no se incluye en este repositorio. 
+
+Antes de levantar la infraestructura, **debes crear un archivo llamado `.env` en la raíz del proyecto** (al mismo nivel que el `docker-compose.yml`) y pegar el siguiente contenido:
+
+```env
+# ==========================================
+# BASE DE DATOS PROCESADA (Capa Plata/Oro - postgres)
+# ==========================================
+DB_USER=admin_dataops
+DB_PASSWORD=password_seguro_123
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=iot_predictivo
+
+# ==========================================
+# BASE DE DATOS CRUDA (Capa Bronce - postgres_raw)
+# ==========================================
+DB_USER2=admin_crudos
+DB_PASSWORD2=contra_cruda123
+DB_HOST2=postgres_raw
+DB_PORT2=5432
+DB_NAME2=telemetria_cruda_db
+
 # 3. Construir las imágenes personalizadas y levantar los contenedores en segundo plano
 docker compose up -d --build
 
@@ -124,4 +148,7 @@ Esta entrega consolida la madurez del proyecto mediante la migración a un entor
 🧠 Control de Amnesia de Interfaz (Session State): Integración avanzada de st.session_state en el código de Streamlit. Las tarjetas analíticas acumulan de forma permanente las métricas operacionales (Total Crudos Recibidos, Procesados con Éxito, Total Descartados) sin resetearse a cero durante los refrescos cíclicos del navegador (F5).
 
 🎲 Simulación de Estrés Realista y Blinking Deltas: Elevación del abanico probabilístico de fallas térmicas a un rango dinámico del 20% al 30%, permitiendo observar fluctuaciones orgánicas en la tasa de descartes del centro de control, acompañado de micropulsos visuales CSS (@keyframes latido) que se ejecutan cada 2 segundos con cada actualización de lote.
+
+
+
 
