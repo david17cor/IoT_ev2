@@ -92,27 +92,6 @@ cd iot_ev2
 ### ⚙️ Paso 2.5: Configuración de Variables de Entorno (.env)
 Por lineamientos estrictos de ciberseguridad y buenas prácticas de DataOps, el archivo con las credenciales de bases de datos no se incluye en este repositorio. 
 
-Antes de levantar la infraestructura, **debes crear un archivo llamado `.env` en la raíz del proyecto** (al mismo nivel que el `docker-compose.yml`) y pegar el siguiente contenido:
-
-```env
-# ==========================================
-# BASE DE DATOS PROCESADA (Capa Plata/Oro - postgres)
-# ==========================================
-DB_USER=admin_dataops
-DB_PASSWORD=password_seguro_123
-DB_HOST=postgres
-DB_PORT=5432
-DB_NAME=iot_predictivo
-
-# ==========================================
-# BASE DE DATOS CRUDA (Capa Bronce - postgres_raw)
-# ==========================================
-DB_USER2=admin_crudos
-DB_PASSWORD2=contra_cruda123
-DB_HOST2=postgres_raw
-DB_PORT2=5432
-DB_NAME2=telemetria_cruda_db
-
 # 3. Construir las imágenes personalizadas y levantar los contenedores en segundo plano
 docker compose up -d --build
 
