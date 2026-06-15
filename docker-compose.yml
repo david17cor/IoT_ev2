@@ -1,7 +1,7 @@
 services:
   kafka:
     image: confluentinc/cp-kafka:7.5.0
-    container_name: kafka
+    container_name: kafka_broker
     restart: always
     ports:
       - "29092:29092"
@@ -22,7 +22,7 @@ services:
 
   postgres:
     image: postgres:15
-    container_name: contenedor-procesado
+    container_name: postgres_gold
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -36,7 +36,7 @@ services:
 
   postgres_raw:
     image: postgres:15-alpine
-    container_name: db_telemetria_cruda
+    container_name: postgres_bronze
     environment:
       POSTGRES_USER: ${DB_USER2}
       POSTGRES_PASSWORD: ${DB_PASSWORD2}
@@ -49,6 +49,7 @@ services:
       - dataops_network
 
   spark-streaming:
+    container_name: spark_streaming
     build:
       context: ./data_pipeline
     depends_on:
@@ -66,6 +67,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   backend-api:
+    container_name: backend_api
     build:
       context: ./backend_api
     depends_on:
@@ -79,6 +81,7 @@ services:
       - dataops_network
     
   frontend-app:
+    container_name: frontend_app
     build:
       context: ./frontend_app
     depends_on:
@@ -90,6 +93,7 @@ services:
     command: streamlit run app_frontend.py --server.port=8501 --server.address=0.0.0.0 --server.enableCORS=false --server.enableXsrfProtection=false
 
   productor-iot:
+    container_name: productor_iot
     build:
       context: ./productor-iot
     depends_on:
@@ -102,7 +106,7 @@ services:
     restart: always
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.47.0
-    container_name: monitor_cadvisor
+    container_name: cadvisor
     ports:
       - "8080:8080"
     volumes:
