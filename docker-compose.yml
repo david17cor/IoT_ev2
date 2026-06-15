@@ -34,19 +34,7 @@ services:
     networks:
       - dataops_network
 
-  postgres_raw:
-    image: postgres:15-alpine
-    container_name: postgres_bronze
-    environment:
-      POSTGRES_USER: ${DB_USER2}
-      POSTGRES_PASSWORD: ${DB_PASSWORD2}
-      POSTGRES_DB: ${DB_NAME2}
-    ports:
-      - "5433:5432"
-    volumes:
-      - pg_data_raw:/var/lib/postgresql/data
-    networks:
-      - dataops_network
+
 
   spark-streaming:
     container_name: spark_streaming
@@ -72,7 +60,7 @@ services:
       context: ./backend_api
     depends_on:
       - postgres
-      - postgres_raw
+      - minio
     env_file:
       - .env
     ports:
@@ -104,18 +92,19 @@ services:
     networks:
       - dataops_network
     restart: always
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.47.0
-    container_name: cadvisor
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio_datalake
     ports:
-      - "8080:8080"
+      - "9000:9000"   # Puerto para conexión de Spark (API S3)
+      - "9001:9001"   # Puerto para la Interfaz Gráfica (Web UI)
+    environment:
+      - MINIO_ROOT_USER=admin           # Usuario administrador
+      - MINIO_ROOT_PASSWORD=password123 # Contraseña (mínimo 8 caracteres)
     volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
-    privileged: true
+      - ./minio_data:/data              # Carpeta local para que no se borren los datos
+    command: server /data --console-address ":9001"
     restart: unless-stopped
 
 volumes:
