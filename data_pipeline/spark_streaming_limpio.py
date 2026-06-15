@@ -21,6 +21,11 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio_datalake:9000") # Ase
 
 print("🔐 Variables de entorno Oro (Postgres) y Bronce (MinIO) preparadas.")
 
+if not MINIO_ENDPOINT or MINIO_ENDPOINT.strip() == "":
+    MINIO_ENDPOINT = "http://minio_datalake:9000"
+elif not MINIO_ENDPOINT.startswith("http://") and not MINIO_ENDPOINT.startswith("https://"):
+    MINIO_ENDPOINT = f"http://{MINIO_ENDPOINT}"
+
 # 2. Inicializar SparkSession (Con drivers de Kafka, Postgres y AWS S3)
 print("⏳ Iniciando motor Apache Spark y descargando dependencias (Kafka + JDBC + AWS S3)...")
 spark = SparkSession.builder \
@@ -32,6 +37,7 @@ spark = SparkSession.builder \
     .config("spark.hadoop.fs.s3a.path.style.access", "true") \
     .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
     .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") \
+    .config("spark.hadoop.fs.s3a.region", "us-east-1") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
