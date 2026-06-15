@@ -2,7 +2,7 @@ import os
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, from_json, to_timestamp, lower, regexp_replace,
-    when, lit, sha2, trim, initcap, concat, substring
+    when, lit, sha2, trim, initcap, concat, substring, current_timestamp
 )
 from pyspark.sql.types import StructType, StructField, StringType
 
@@ -12,22 +12,26 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
 DB_HOST = os.getenv("DB_HOST", "postgres") 
 DB_PORT = os.getenv("DB_PORT", "5432") 
 DB_NAME = os.getenv("DB_NAME", "postgres")
-
-# (CORREGIDO): Cargar credenciales específicas para Capa Bronce
-DB_USER2 = os.getenv("DB_USER2", "postgres")
-DB_PASSWORD2 = os.getenv("DB_PASSWORD2", "postgres")
-
-# URLs para Capa Oro y Capa Bronce unificadas con el .env
-DB_NAME2 = os.getenv("DB_NAME2", "postgres")
 JDBC_URL_GOLD = f"jdbc:postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}"
-JDBC_URL_BRONZE = f"jdbc:postgresql://postgres_raw:5432/{DB_NAME2}"
-print("🔐 Variables de entorno y URLs de conexión preparadas con credenciales independientes.")
 
-# 2. Inicializar SparkSession
-print("⏳ Iniciando motor Apache Spark y descargando dependencias (Kafka + JDBC)...")
+# (NUEVO) Credenciales de MinIO (Capa Bronce)
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "admin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "password123")
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio_datalake:9000") # Asegúrate que este nombre coincide con tu docker-compose
+
+print("🔐 Variables de entorno Oro (Postgres) y Bronce (MinIO) preparadas.")
+
+# 2. Inicializar SparkSession (Con drivers de Kafka, Postgres y AWS S3)
+print("⏳ Iniciando motor Apache Spark y descargando dependencias (Kafka + JDBC + AWS S3)...")
 spark = SparkSession.builder \
-    .appName("DataOps_IoT_Streaming_Medallion") \
-    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.postgresql:postgresql:42.7.3") \
+    .appName("DataOps_IoT_Streaming_Medallion_V2") \
+    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.postgresql:postgresql:42.7.3,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262") \
+    .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT) \
+    .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY) \
+    .config("spark.hadoop.fs.s3a.secret.key", MINIO_SECRET_KEY) \
+    .config("spark.hadoop.fs.s3a.path.style.access", "true") \
+    .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
+    .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
@@ -47,7 +51,7 @@ esquema_sensor = StructType([
 # 4. Leer Kafka
 kafka_stream = spark.readStream \
     .format("kafka") \
-    .option("kafka.bootstrap.servers", "kafka:9092") \
+    .option("kafka.bootstrap.servers", "kafka_broker:9092") \
     .option("subscribe", "telemetria_sucia") \
     .option("startingOffsets", "latest") \
     .load()
@@ -55,28 +59,27 @@ kafka_stream = spark.readStream \
 # Extraer el JSON
 df_parsed = kafka_stream.select(from_json(col("value").cast("string"), esquema_sensor).alias("data")).select("data.*")
 
-# 5. Función de Bifurcación (Capa Bronce y Capa Oro)
+# 5. Función de Bifurcación (Capa Bronce en S3 y Capa Oro en Postgres)
 def process_medallion_batch(batch_df, batch_id):
     batch_df.cache()
     total_crudos = batch_df.count()
     
     if total_crudos > 0:
-        # --- 🛡️ CAPA BRONCE: Guardar dato 100% crudo (Aislado en su propio try) ---
+        # --- 🛡️ CAPA BRONCE: Guardar dato 100% crudo en Data Lake (MinIO) ---
         try:
-            batch_df.write \
-                .format("jdbc") \
-                .option("url", JDBC_URL_BRONZE) \
-                .option("dbtable", "raw_records") \
-                .option("user", DB_USER2) \
-                .option("password", DB_PASSWORD2) \
-                .option("driver", "org.postgresql.Driver") \
-                .mode("append") \
-                .save()
-            print(f"📦 Capa Bronce: {total_crudos} registros crudos guardados en batch {batch_id}.", flush=True)
-        except Exception as e:
-            print(f"❌ Error crítico en Capa Bronce (Batch {batch_id}): {e}", flush=True)
+            # Agregamos una marca de tiempo de cuando llegó al Data Lake
+            df_bronze = batch_df.withColumn("ingest_timestamp", current_timestamp())
             
-        # --- 🥇 CAPA ORO: Transformación y Limpieza (Aislado en su propio try) ---
+            df_bronze.write \
+                .format("parquet") \
+                .mode("append") \
+                .save("s3a://s3bronze/telemetria_raw/")
+                
+            print(f"📦 Capa Bronce: {total_crudos} registros guardados en MinIO (S3) en batch {batch_id}.", flush=True)
+        except Exception as e:
+            print(f"❌ Error crítico en Capa Bronce (MinIO - Batch {batch_id}): {e}", flush=True)
+            
+        # --- 🥇 CAPA ORO: Transformación y Limpieza (Postgres) ---
         try:
             df_clean = batch_df \
                 .withColumn("timestamp_lectura", to_timestamp(col("timestamp_lectura"), "dd/MM/yyyy HH:mm:ss")) \
@@ -103,11 +106,11 @@ def process_medallion_batch(batch_df, batch_id):
                     .option("driver", "org.postgresql.Driver") \
                     .mode("append") \
                     .save()
-                print(f"🥇 Capa Oro: {registros_validos} registros limpios guardados en batch {batch_id}.", flush=True)
+                print(f"🥇 Capa Oro: {registros_validos} registros limpios guardados en Postgres batch {batch_id}.", flush=True)
             else:
-                print(f"⚠️ Batch {batch_id} no generó registros válidos para Capa Oro (todas fueron anomalías).", flush=True)
+                print(f"⚠️ Batch {batch_id} no generó registros válidos para Capa Oro.", flush=True)
         except Exception as e:
-            print(f"❌ Error crítico en Capa Oro (Batch {batch_id}): {e}", flush=True)
+            print(f"❌ Error crítico en Capa Oro (Postgres - Batch {batch_id}): {e}", flush=True)
             
     batch_df.unpersist()
 

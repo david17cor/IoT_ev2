@@ -46,7 +46,7 @@ OPERADORES_POOL = [
 ]
 
 def generar_y_enviar_en_vivo():
-    maquinas = [f"MAQ-CNC-{str(i).zfill(2)}" for i in range(1, 11)]
+    maquinas = [f"MAQ-CNC-{str(i).zfill(2)}" for i in range(1, 51)]
     
     print(f"🚀 Iniciando Ingesta IoT en Vivo hacia Kafka en: {KAFKA_BROKER}...")
     print("✨ Rotación aleatoria de 10 operadores y 10 máquinas activada.")
@@ -92,7 +92,7 @@ def generar_y_enviar_en_vivo():
             # Si Kafka no responde en 5 segundos, nos avisará en lugar de congelarse
             print(f"⚠️ Alerta: Fallo al enviar mensaje a Kafka: {e}", flush=True)
             
-        time.sleep(1.5) # Espera 1.5 segundos entre envíos
+        time.sleep(0.01) # Espera 0.01 segundos entre envíos
 
 if __name__ == "__main__":
     generar_y_enviar_en_vivo()
