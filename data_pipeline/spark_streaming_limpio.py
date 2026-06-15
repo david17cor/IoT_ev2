@@ -70,7 +70,7 @@ kafka_stream = spark.readStream \
     .option("kafka.bootstrap.servers", "kafka_broker:9092") \
     .option("subscribe", "telemetria_sucia") \
     .option("startingOffsets", "earliest") \
-    .option("maxOffsetsPerTrigger", "1000") \
+    .option("maxOffsetsPerTrigger", "100") \
     .load()
 
 
