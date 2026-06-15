@@ -49,6 +49,7 @@ services:
       - DB_HOST=postgres
       - DB_PORT=5432
       - MINIO_ENDPOINT=http://minio:9000
+      - PYTHONBUFFERED=1
     networks:
       - dataops_network
     extra_hosts:

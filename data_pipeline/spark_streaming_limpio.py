@@ -61,7 +61,7 @@ esquema_sensor = StructType([
 # ============================================================================
 kafka_stream = spark.readStream \
     .format("kafka") \
-    .option("kafka.bootstrap.servers", "kafka_broker:9092") \
+    .option("kafka.bootstrap.servers", "kafka:9092") \
     .option("subscribe", "telemetria_sucia") \
     .option("startingOffsets", "earliest") \
     .load()
