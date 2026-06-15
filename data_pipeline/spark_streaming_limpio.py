@@ -6,7 +6,10 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import StructType, StructField, StringType
 
-# 1. Cargar variables de entorno (Capa Oro)
+# ============================================================================
+# 1. Cargar variables de entorno
+# ============================================================================
+# Capa Oro (Postgres)
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
 DB_HOST = os.getenv("DB_HOST", "postgres") 
@@ -14,19 +17,16 @@ DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "postgres")
 JDBC_URL_GOLD = f"jdbc:postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-# (NUEVO) Credenciales de MinIO (Capa Bronce)
+# Capa Bronce (MinIO)
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "admin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "password123")
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio_datalake:9000") # Asegúrate que este nombre coincide con tu docker-compose
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio_datalake:9000")
 
-print("🔐 Variables de entorno Oro (Postgres) y Bronce (MinIO) preparadas.")
+print(f"🚀 Configurando Spark con Endpoint MinIO: {MINIO_ENDPOINT}")
 
-if not MINIO_ENDPOINT or MINIO_ENDPOINT.strip() == "":
-    MINIO_ENDPOINT = "http://minio_datalake:9000"
-elif not MINIO_ENDPOINT.startswith("http://") and not MINIO_ENDPOINT.startswith("https://"):
-    MINIO_ENDPOINT = f"http://{MINIO_ENDPOINT}"
-
-# 2. Inicializar SparkSession (Con drivers de Kafka, Postgres y AWS S3)
+# ============================================================================
+# 2. Inicializar SparkSession
+# ============================================================================
 print("⏳ Iniciando motor Apache Spark y descargando dependencias (Kafka + JDBC + AWS S3)...")
 spark = SparkSession.builder \
     .appName("DataOps_IoT_Streaming_Medallion_V2") \
@@ -37,13 +37,15 @@ spark = SparkSession.builder \
     .config("spark.hadoop.fs.s3a.path.style.access", "true") \
     .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
     .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") \
-    .config("spark.hadoop.fs.s3a.region", "us-east-1") \
+    .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
 print("🟢 PySpark iniciado. Conectando a Kafka...")
 
+# ============================================================================
 # 3. Esquema del sensor IoT
+# ============================================================================
 esquema_sensor = StructType([
     StructField("timestamp_lectura", StringType(), True),
     StructField("ID_Maquina", StringType(), True),
@@ -54,7 +56,9 @@ esquema_sensor = StructType([
     StructField("rut_op", StringType(), True)
 ])
 
+# ============================================================================
 # 4. Leer Kafka
+# ============================================================================
 kafka_stream = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "kafka_broker:9092") \
@@ -65,7 +69,9 @@ kafka_stream = spark.readStream \
 # Extraer el JSON
 df_parsed = kafka_stream.select(from_json(col("value").cast("string"), esquema_sensor).alias("data")).select("data.*")
 
+# ============================================================================
 # 5. Función de Bifurcación (Capa Bronce en S3 y Capa Oro en Postgres)
+# ============================================================================
 def process_medallion_batch(batch_df, batch_id):
     batch_df.cache()
     total_crudos = batch_df.count()
@@ -73,7 +79,6 @@ def process_medallion_batch(batch_df, batch_id):
     if total_crudos > 0:
         # --- 🛡️ CAPA BRONCE: Guardar dato 100% crudo en Data Lake (MinIO) ---
         try:
-            # Agregamos una marca de tiempo de cuando llegó al Data Lake
             df_bronze = batch_df.withColumn("ingest_timestamp", current_timestamp())
             
             df_bronze.write \
@@ -120,7 +125,9 @@ def process_medallion_batch(batch_df, batch_id):
             
     batch_df.unpersist()
 
+# ============================================================================
 # 6. Ejecutar Stream
+# ============================================================================
 query = df_parsed.writeStream \
     .foreachBatch(process_medallion_batch) \
     .outputMode("append") \
