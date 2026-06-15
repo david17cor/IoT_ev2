@@ -63,7 +63,7 @@ kafka_stream = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "kafka_broker:9092") \
     .option("subscribe", "telemetria_sucia") \
-    .option("startingOffsets", "latest") \
+    .option("startingOffsets", "earliest") \
     .load()
 
 # Extraer el JSON
@@ -122,6 +122,8 @@ def process_medallion_batch(batch_df, batch_id):
                 print(f"⚠️ Batch {batch_id} no generó registros válidos para Capa Oro.", flush=True)
         except Exception as e:
             print(f"❌ Error crítico en Capa Oro (Postgres - Batch {batch_id}): {e}", flush=True)
+        else:
+            print(f"😴 Batch {batch_id} procesado: llegó vacío (0 registros esperando).", flush=True)
             
     batch_df.unpersist()
 
