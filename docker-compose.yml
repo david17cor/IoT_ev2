@@ -48,7 +48,7 @@ services:
       - SPARK_MODE=worker
       - DB_HOST=postgres
       - DB_PORT=5432
-      - MINIO_ENDPOINT=http://minio_datalake:9000
+      - MINIO_ENDPOINT=http://minio:9000
     networks:
       - dataops_network
     extra_hosts:

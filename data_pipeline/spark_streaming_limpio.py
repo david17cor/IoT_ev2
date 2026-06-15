@@ -20,7 +20,7 @@ JDBC_URL_GOLD = f"jdbc:postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}"
 # Capa Bronce (MinIO)
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "admin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "password123")
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio_datalake:9000")
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
 
 print(f"🚀 Configurando Spark con Endpoint MinIO: {MINIO_ENDPOINT}")
 
