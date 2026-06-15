@@ -96,7 +96,7 @@ services:
 
   minio:
     image: minio/minio:latest
-    container_name: minio_datalake
+    container_name: minio-datalake
     ports:
       - "9000:9000"   # Puerto para conexión de Spark (API S3)
       - "9001:9001"   # Puerto para la Interfaz Gráfica (Web UI)
@@ -107,6 +107,8 @@ services:
       - ./minio_data:/data              # Carpeta local para que no se borren los datos
     command: server /data --console-address ":9001"
     restart: unless-stopped
+    networks: 
+      - dataops_network
 
 volumes:
   postgres_data:
