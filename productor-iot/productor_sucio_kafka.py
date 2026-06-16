@@ -14,24 +14,22 @@ from kafka import KafkaProducer
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:9092")
 print(f"⏳ Intentando conectar a Kafka en: {KAFKA_BROKER}...", flush=True)
 
-# 2. Configurar el Productor de Kafka apuntando a la red interna
+# 2. Configurar el Productor de Kafka
 try:
     producer = KafkaProducer(
         bootstrap_servers=[KAFKA_BROKER],
         value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-        api_version=(2, 5, 0), # Evita que se quede colgado buscando la versión
-        request_timeout_ms=5000, # Si en 5 segundos no conecta, falla
+        api_version=(2, 5, 0),
+        request_timeout_ms=5000,
         max_block_ms=5000
     )
     print("✅ Conectado a Kafka exitosamente.", flush=True)
 except Exception as e:
     print(f"❌ ERROR CRÍTICO al conectar con Kafka: {e}", flush=True)
-    sys.exit(1) # Forzamos a que el contenedor se caiga y se reinicie
+    sys.exit(1)
 
 TOPIC_NAME = 'telemetria_sucia'
 
-# Pool de operadores chilenos con datos realistas pero "sucios" (espacios y mayúsculas)
-# Esto simula un abanico completo de trabajadores para la planta
 OPERADORES_POOL = [
     {"id": "OP-001", "nombre": "   JUAN PEREZ   ", "rut": "15.444.333-2"},
     {"id": "OP-002", "nombre": "  MARIA GONZALEZ  ", "rut": "18.222.111-K"},
@@ -48,51 +46,57 @@ OPERADORES_POOL = [
 def generar_y_enviar_en_vivo():
     maquinas = [f"MAQ-CNC-{str(i).zfill(2)}" for i in range(1, 51)]
     
-    print(f"🚀 Iniciando Ingesta IoT en Vivo hacia Kafka en: {KAFKA_BROKER}...")
-    print("✨ Rotación aleatoria de 10 operadores y 10 máquinas activada.")
+    print(f"🚀 Iniciando Ingesta IoT Orientada a ML hacia Kafka...")
+    print("✨ Generando variable objetivo 'estado_real' (0=Sana, 1=Falla)")
     print("------------------------------------------------------------")
     
-    while True: # Bucle infinito para la demo
+    while True:
         maquina = random.choice(maquinas)
-        
-        # Selección aleatoria del operador en cada iteración (cambio de turno/evento)
         op_elegido = random.choice(OPERADORES_POOL)
         
-        # Generar datos base de telemetría
-        rpm = round(random.uniform(1450, 1550), 2)
-        temp = round(random.uniform(60, 80), 2)
+        # --- LÓGICA DE MACHINE LEARNING (Generación de Falla) ---
+        # 15% de probabilidad de que la máquina presente una anomalía real (Falla)
+        if random.random() < 0.15:
+            estado_real = 1
+            rpm_base = round(random.uniform(1520, 1600), 2) # RPM elevadas
+            temp_base = round(random.uniform(76, 95), 2)    # Temperatura alta
+        else:
+            estado_real = 0
+            rpm_base = round(random.uniform(1400, 1519), 2) # RPM normales
+            temp_base = round(random.uniform(60, 75), 2)    # Temperatura normal
+
+        rpm = rpm_base
+        temp = temp_base
         
-        # 1. Error de formato DataOps (30% de probabilidad: coma en vez de punto)
+        # --- LÓGICA DE DATA QUALITY (Ruido para limpiar en Spark) ---
         if random.random() < 0.3:
             rpm = str(rpm).replace(".", ",")
             
-        # 2. Error semántico DataOps (20% de probabilidad: Temperatura fuera de rango lógico)
         if random.random() < 0.2:
             temp = -999
             
-        # Construcción del Payload Sucio usando los datos dinámicos del operador
+        # Payload con nuestra nueva Variable Objetivo
         payload_sucio = {
-            "timestamp_lectura": datetime.now().strftime("%d/%m/%Y %H:%M:%S"), # Formato no-estándar
+            "timestamp_lectura": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
             "ID_Maquina": maquina.lower(), 
             "Revoluciones_RPM": rpm,
             "Temp_C": temp,
             "op_id": op_elegido["id"],
-            "Nombre_Operador": op_elegido["nombre"], # Ya incluye los espacios sucios de la lista
-            "rut_op": op_elegido["rut"]
+            "Nombre_Operador": op_elegido["nombre"],
+            "rut_op": op_elegido["rut"],
+            "estado_real": estado_real # <--- NUEVA COLUMNA PARA LA IA
         }
     
         try:
-            # 1. Enviar a Kafka y OBLIGAR a que confirme recepción (Síncrono)
             producer.send(TOPIC_NAME, value=payload_sucio).get(timeout=5)
-            
-            # 2. Imprimir con flush=True para que no se quede atrapado en memoria
-            print(f"🔴 ENVIADO SUCIO -> Maquina: {payload_sucio['ID_Maquina']} | Op: {payload_sucio['Nombre_Operador'].strip()} | RPM: {payload_sucio['Revoluciones_RPM']} | Temp: {payload_sucio['Temp_C']}", flush=True)
+            # Imprimir un emoji distinto si es falla para verlo fácil en la consola
+            icono = "🚨" if estado_real == 1 else "🟢"
+            print(f"{icono} ENVIADO -> Maq: {payload_sucio['ID_Maquina']} | RPM: {payload_sucio['Revoluciones_RPM']} | Temp: {payload_sucio['Temp_C']} | Falla: {estado_real}", flush=True)
             
         except Exception as e:
-            # Si Kafka no responde en 5 segundos, nos avisará en lugar de congelarse
             print(f"⚠️ Alerta: Fallo al enviar mensaje a Kafka: {e}", flush=True)
             
-        time.sleep(0.01) # Espera 0.01 segundos entre envíos
+        time.sleep(0.01)
 
 if __name__ == "__main__":
     generar_y_enviar_en_vivo()

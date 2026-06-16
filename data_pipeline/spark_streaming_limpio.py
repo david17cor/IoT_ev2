@@ -1,8 +1,7 @@
 import os
 import sys
 
-
-# Esto obliga a Python a escupir los prints en pantalla al milisegundo.
+# Obligar a Python a escupir los prints en pantalla
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
@@ -14,7 +13,7 @@ from pyspark.sql.functions import (
 from pyspark.sql.types import StructType, StructField, StringType
 
 print("========================================================", flush=True)
-print("🚀 ARRANCANDO PROCESO DE DIAGNÓSTICO EN TIEMPO REAL", flush=True)
+print("🚀 ARRANCANDO PROCESO DE PIPELINE + TARGET ML", flush=True)
 print("========================================================", flush=True)
 
 # 1. Cargar variables de entorno
@@ -47,12 +46,10 @@ spark = SparkSession.builder \
     .config("spark.hadoop.fs.s3a.retry.interval", "1s") \
     .getOrCreate()
 
-
-
 spark.sparkContext.setLogLevel("WARN")
 print("🟢 Motor PySpark inicializado correctamente.", flush=True)
 
-# 3. Esquema del sensor IoT
+# 3. Esquema del sensor IoT (AHORA INCLUYE LA VARIABLE OBJETIVO)
 esquema_sensor = StructType([
     StructField("timestamp_lectura", StringType(), True),
     StructField("ID_Maquina", StringType(), True),
@@ -60,7 +57,8 @@ esquema_sensor = StructType([
     StructField("Temp_C", StringType(), True),
     StructField("op_id", StringType(), True),
     StructField("Nombre_Operador", StringType(), True),
-    StructField("rut_op", StringType(), True)
+    StructField("rut_op", StringType(), True),
+    StructField("estado_real", StringType(), True) # <--- CAPTURAMOS EL TARGET
 ])
 
 # 4. Conectar a Kafka
@@ -73,8 +71,6 @@ kafka_stream = spark.readStream \
     .option("maxOffsetsPerTrigger", "100") \
     .load()
 
-
-
 df_parsed = kafka_stream.select(from_json(col("value").cast("string"), esquema_sensor).alias("data")).select("data.*")
 
 # 5. Función de Procesamiento por Lotes
@@ -82,24 +78,20 @@ def process_medallion_batch(batch_df, batch_id):
     print(f"📥 [Batch {batch_id}] Iniciando procesamiento de micro-lote...", flush=True)
     batch_df.cache()
     total_crudos = batch_df.count()
-    print(f"📊 [Batch {batch_id}] Registros detectados en este lote: {total_crudos}", flush=True)
     
     if total_crudos > 0:
         # --- 🛡️ CAPA BRONCE (MinIO) ---
         try:
-            print(f"📦 [Batch {batch_id}] Escribiendo en MinIO S3...", flush=True)
             df_bronze = batch_df.withColumn("ingest_timestamp", current_timestamp())
             df_bronze.write \
                 .format("parquet") \
                 .mode("append") \
                 .save("s3a://s3bronze/telemetria_raw/")
-            print(f"✅ [Batch {batch_id}] Capa Bronce guardada con éxito en MinIO.", flush=True)
         except Exception as e:
             print(f"❌ ERROR CRÍTICO BRONCE [Batch {batch_id}]: {e}", flush=True)
             
         # --- 🥇 CAPA ORO (Postgres) ---
         try:
-            print(f"🥇 [Batch {batch_id}] Procesando transformaciones Capa Oro...", flush=True)
             df_clean = batch_df \
                 .withColumn("timestamp_lectura", to_timestamp(col("timestamp_lectura"), "dd/MM/yyyy HH:mm:ss")) \
                 .withColumn("id_maquina", lower(col("ID_Maquina"))) \
@@ -109,7 +101,8 @@ def process_medallion_batch(batch_df, batch_id):
                 .withColumn("op_id", col("op_id")) \
                 .withColumn("nombre_operador", sha2(trim(initcap(col("Nombre_Operador"))), 256)) \
                 .withColumn("rut_op", concat(lit("XX.XXX.XX"), substring(col("rut_op"), -3, 3))) \
-                .select("timestamp_lectura", "id_maquina", "rpm", "temperatura", "op_id", "nombre_operador", "rut_op")
+                .withColumn("estado_real", col("estado_real").cast("integer")) \
+                .select("timestamp_lectura", "id_maquina", "rpm", "temperatura", "op_id", "nombre_operador", "rut_op", "estado_real") # <--- AÑADIDO AL SELECT FINAL
                 
             df_final = df_clean.filter(col("temperatura").isNotNull() & col("rpm").isNotNull())
             registros_validos = df_final.count()
@@ -124,7 +117,7 @@ def process_medallion_batch(batch_df, batch_id):
                     .option("driver", "org.postgresql.Driver") \
                     .mode("append") \
                     .save()
-                print(f"✅ [Batch {batch_id}] Capa Oro guardada con éxito en Postgres ({registros_validos} filas).", flush=True)
+                print(f"✅ [Batch {batch_id}] Capa Oro y Bronce guardadas. ({registros_validos} filas limpias).", flush=True)
             else:
                 print(f"⚠️ [Batch {batch_id}] Sin registros válidos para Capa Oro.", flush=True)
         except Exception as e:
@@ -141,5 +134,4 @@ query = df_parsed.writeStream \
     .outputMode("append") \
     .start()
 
-print("👀 Streaming activo. Esperando triggers...", flush=True)
 query.awaitTermination()
