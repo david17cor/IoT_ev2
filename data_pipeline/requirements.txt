@@ -1,0 +1,7 @@
+pyspark==3.5.1
+pandas
+joblib
+psycopg2-binary
+sqlalchemy
+scikit-learn
+python-dotenv

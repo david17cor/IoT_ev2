@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# Instalar dependencias del sistema necesarias para Java y librerías de Python
+# Instalar dependencias del sistema necesarias
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     default-jre \
@@ -9,23 +9,16 @@ RUN apt-get update && \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Establecer el directorio de trabajo
 WORKDIR /app
 
-# Instalar PySpark y las dependencias necesarias para tu lógica
-RUN pip install --no-cache-dir \
-    python-dotenv \
-    pyspark==3.5.1 \
-    pandas \
-    joblib \
-    psycopg2-binary \
-    sqlalchemy \
-    scikit-learn
+# Copiar el archivo de requerimientos primero (mejora el cache de Docker)
+COPY requirements.txt .
 
-# Copiar el script de streaming y el modelo entrenado
-COPY spark_streaming_limpio.py /app/
-COPY modelo_v2_cnc.pkl /app/
+# Instalar todas las dependencias
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Ejecutar el script directamente con Python
-# Asegúrate de que las variables de entorno estén bien cargadas en el docker-compose
+# Copiar el código y el modelo
+COPY spark_streaming_limpio.py .
+COPY modelo_v3_cnc.pkl .
+
 CMD ["python", "spark_streaming_limpio.py"]

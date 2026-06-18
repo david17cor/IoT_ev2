@@ -32,7 +32,8 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio-datalake:9000")
 
 # 2. Cargar el Modelo ML y Estado Global en memoria del Driver
 print("Cargando modelo predictivo (Random Forest)...", flush=True)
-modelo_rf = joblib.load("modelo_v2_cnc.pkl")
+ruta_modelo = os.path.join("/app", "modelo_v3_cnc.pkl")
+modelo_rf = joblib.load(ruta_modelo)
 ultimo_estado_maquinas = {}
 
 # 3. Inicializar SparkSession
