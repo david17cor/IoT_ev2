@@ -15,7 +15,7 @@ producer = KafkaProducer(
 
 TOPIC_NAME = 'telemetria_sucia'
 NUM_MAQUINAS = 50
-OPERADORES = [{"id": f"OP-00{i}", "nombre": f" Operador {i} ", "rut": f"1{i}.333.444-K"} for i in range(1, 10)]
+OPERADORES = [{"id": f"OP-00{i}", "nombre": f" Operador {i} ", "rut": f"1{i}.333.444-K"} for i in range(1, 51)]
 
 def iniciar_estado_maquinas():
     """Crea la memoria interna de la planta: inercia inicial y desgaste para las 50 máquinas"""

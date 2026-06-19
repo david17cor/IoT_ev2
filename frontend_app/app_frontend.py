@@ -3,119 +3,138 @@ import requests
 import pandas as pd
 import time
 
-st.set_page_config(page_title="DataOps Monitor", layout="wide")
+# Configuración de página estricta
+st.set_page_config(page_title="Dashboard Predictivo CNC", layout="wide", initial_sidebar_state="expanded")
 
+# --- ESTILOS CSS MEJORADOS ---
 st.markdown("""
     <style>
-        .stApp { background-color: #0F172A; }
-        .stApp, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp span { color: #F8FAFC !important; font-family: 'Inter', 'Segoe UI', sans-serif; }
-        hr { border-color: #334155 !important; }
-        [data-testid="stDataFrame"] { border: 1px solid #1E293B; border-radius: 6px; box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.4); }
-        div[data-testid="caption"] { color: #94A3B8 !important; font-size: 14px !important; margin-top: 10px; }
-        label[data-testid="stMetricLabel"] > div { color: #94A3B8 !important; font-weight: 600; }
-        div[data-testid="stMetricValue"] > div { color: #38BDF8 !important; }
-        @keyframes latido {
-            0% { opacity: 0.2; transform: scale(0.9); }
-            50% { opacity: 1; transform: scale(1.1); }
-            100% { opacity: 1; transform: scale(1); }
+        .stApp { background-color: #0F172A; color: #F8FAFC; }
+        @keyframes latido_critico {
+            0% { background-color: #7f1d1d; box-shadow: 0 0 10px #ef4444; }
+            50% { background-color: #dc2626; box-shadow: 0 0 25px #ef4444; }
+            100% { background-color: #7f1d1d; box-shadow: 0 0 10px #ef4444; }
         }
-        div[data-testid="stMetricDelta"] > div { animation: latido 1s ease-out; font-weight: bold; }
+        .card-normal { background-color: #1e293b; border: 1px solid #334155; }
+        .card-riesgo { background-color: #78350f; border: 1px solid #b45309; border-radius: 8px; padding: 15px; margin-bottom: 15px; text-align: center;}
+        .card-critico { animation: latido_critico 1s infinite; border: 2px solid #ef4444; border-radius: 8px; padding: 15px; margin-bottom: 15px; text-align: center;}
+        .card-offline { background-color: #0f172a; border: 1px dashed #475569; opacity: 0.5; border-radius: 8px; padding: 15px; margin-bottom: 15px; text-align: center;}
     </style>
 """, unsafe_allow_html=True)
 
-# Solo guardamos memoria para calcular la velocidad por segundo (las flechitas verdes)
-if "last_total_crudos" not in st.session_state: st.session_state.last_total_crudos = 0
-if "last_total_exitosos" not in st.session_state: st.session_state.last_total_exitosos = 0
+API_DASHBOARD = "http://backend_api:8000/api/dashboard-tiempo-real"
+API_CAOS = "http://backend_api:8000/api/caos"
 
-st.title("Centro de Control DataOps - Pipeline IoT")
-st.markdown("### Arquitectura Medallón (Capa Bronce vs Capa Oro)")
-
-placeholder = st.empty()
-
-API_GOLD = "http://backend-api:8000/api/telemetria"
-API_BRONZE = "http://backend-api:8000/api/consulta-cruda"
-
-while True:
-    try:
-        res_oro = requests.get(API_GOLD).json()
-        res_bronce = requests.get(API_BRONZE).json()
-        
-        with placeholder.container():
-            if res_oro.get("success") and res_bronce.get("success"):
-                df_limpio = pd.DataFrame(res_oro.get("data", []))
-                df_crudo = pd.DataFrame(res_bronce.get("data", []))
-                
-                # 1. TOTALES ABSOLUTOS E HISTÓRICOS (Fuente de la Verdad: Base de Datos)
-                total_crudos_db = res_bronce.get("total_db", 0)
-                total_limpios_db = res_oro.get("total_db", 0)
-                
-                # ¡LA MAGIA AQUÍ! Matemática pura: la diferencia exacta e inmutable
-                total_descartados_db = max(0, total_crudos_db - total_limpios_db)
-                
-                # 2. CÁLCULO DE VELOCIDAD (Deltas para la sesión actual)
-                delta_crudos = max(0, total_crudos_db - st.session_state.last_total_crudos)
-                delta_limpios = max(0, total_limpios_db - st.session_state.last_total_exitosos)
-                delta_anomalias = max(0, delta_crudos - delta_limpios)
-                
-                # Evitar picos locos en el delta al recargar la página
-                if st.session_state.last_total_crudos == 0:
-                    delta_crudos, delta_limpios, delta_anomalias = 0, 0, 0
-                    
-                # 3. ACTUALIZAR MEMORIA DE VELOCIDAD
-                st.session_state.last_total_crudos = total_crudos_db
-                st.session_state.last_total_exitosos = total_limpios_db
-                
-                st.metric(label="Flujo de Ingesta Activo (API)", value=f"{delta_crudos} Eventos/s")
-                st.markdown("---")
-                
-                col_antes, col_despues = st.columns(2)
-                
-                # --- CAPA BRONCE ---
-                with col_antes:
-                    st.error("🛑 CAPA BRONCE: Base de Datos Cruda (Telemetría Directa)")
-                    st.metric(
-                        label="📥 Total Crudos Extraídos", 
-                        value=f"{total_crudos_db} recs",
-                        delta=f"+{delta_crudos} nuevos"
-                    )
-                    st.dataframe(
-                        df_crudo[['timestamp_lectura', 'ID_Maquina', 'Revoluciones_RPM', 'Temp_C']] if not df_crudo.empty else df_crudo, 
-                        use_container_width=True, 
-                        height=400
-                    )
-                    st.caption("Conectado a 'postgres_raw' | Almacenamiento inmutable.")
-
-                # --- CAPA ORO ---
-                with col_despues:
-                    st.success("🥇 CAPA ORO: Base de Datos Curada (DataOps + Ley 19.628)")
-                    
-                    sub_col1, sub_col2 = st.columns(2)
-                    with sub_col1:
-                        st.metric(
-                            label="✅ Registros Seguros", 
-                            value=f"{total_limpios_db} recs",
-                            delta=f"+{delta_limpios} ok"
-                        )
-                    with sub_col2:
-                        st.metric(
-                            label="⚠️ Descartes Históricos", 
-                            # ¡AQUÍ ESTÁ! Mostrando la resta absoluta de la DB
-                            value=f"{total_descartados_db} recs", 
-                            delta=f"+{delta_anomalias} anomalías detectadas hoy",
-                            delta_color="inverse" 
-                        )
-                    
-                    st.dataframe(
-                        df_limpio, 
-                        use_container_width=True, 
-                        height=400
-                    )
-                    st.caption("Conectado a 'postgres_db' | Tipado, limpieza y enmascaramiento SHA-256.")
+# ==========================================
+# 🍔 MENÚ LATERAL: CONSOLA DEL CAOS
+# ==========================================
+with st.sidebar:
+    st.title("😈 Consola del Caos")
+    st.markdown("Inyecta anomalías directo a Kafka para probar la IA en tiempo real.")
+    
+    maquina_victima = st.selectbox("Selecciona la Víctima:", [f"maq-cnc-{i:02d}" for i in range(1, 51)])
+    tipo_falla = st.radio("Tipo de Falla:", ["Falla Térmica", "Desalineación (Vibración)", "Cortocircuito"])
+    
+    if st.button("💥 INYECTAR FALLA", type="primary", use_container_width=True):
+        try:
+            payload = {"id_maquina": maquina_victima, "tipo_falla": tipo_falla}
+            res = requests.post(API_CAOS, json=payload)
+            if res.status_code == 200:
+                st.success(f"¡Anomalía enviada a {maquina_victima}!")
+                # Le damos un mini sleep para que Spark alcance a procesar antes del re-render
+                time.sleep(0.5) 
             else:
-                st.warning("Esperando datos en ambas bases de datos...")
-                
-    except Exception as e:
-        with placeholder.container():
-            st.info("Conectando con APIs en puerto 8000... Verificando servicio.")
+                st.error("Error al inyectar falla.")
+        except Exception as e:
+            st.error("Error de conexión con el Backend API.")
+
+# ==========================================
+# 🖥️ PANEL PRINCIPAL: GRILLA FIJA DE MÁQUINAS
+# ==========================================
+st.title("🏭 Planta de Producción CNC - Vista en Vivo")
+st.markdown("Visualización en tiempo real del estado de las 50 máquinas.")
+
+# Contenedor para las métricas y la grilla
+metrics_placeholder = st.empty()
+grid_placeholder = st.empty()
+
+try:
+    response = requests.get(API_DASHBOARD).json()
+    
+    if response.get("success") and response.get("data"):
+        df = pd.DataFrame(response.get("data", []))
         
-    time.sleep(2)
+        # Agrupamos para obtener estrictamente el último estado de cada máquina
+        df_latest = df.sort_values('timestamp_lectura').groupby('id_maquina').tail(1)
+        # Lo convertimos a diccionario indexado por id_maquina para búsquedas instantáneas
+        dict_maquinas = df_latest.set_index('id_maquina').to_dict(orient='index')
+
+        
+        cnc_sanas = len(df_latest[df_latest['estado_maquina'] == 'NORMAL'])
+        cnc_riesgo = len(df_latest[df_latest['estado_maquina'] == 'RIESGO: REVISAR'])
+        cnc_criticas = len(df_latest[df_latest['estado_maquina'] == 'CRITICO: PARADA']) # CORREGIDO
+        
+        with metrics_placeholder.container():
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total Máquinas Detectadas", f"{len(df_latest)} / 50")
+            col2.metric("🟢 Normal", cnc_sanas)
+            col3.metric("🟡 En Riesgo", cnc_riesgo)
+            col4.metric("🔴 Críticas", cnc_criticas)
+            st.markdown("---")
+            
+        # --- RENDERIZADO DE GRILLA FIJA (Evita saltos de posiciones) ---
+        with grid_placeholder.container():
+            columnas_grilla = st.columns(5) # Grilla limpia de 5 columnas
+            
+            for i in range(1, 51):
+                id_buscado = f"maq-cnc-{i:02d}"
+                col_actual = columnas_grilla[(i - 1) % 5]
+                
+                # Si la máquina existe en las lecturas de la base de datos
+                if id_buscado in dict_maquinas:
+                    datos_maq = dict_maquinas[id_buscado]
+                    estado = datos_maq['estado_maquina']
+                    temp = datos_maq['delta_temp']
+                    falla = datos_maq['probabilidad_falla_pct']
+                    
+                    if estado == 'NORMAL':
+                        clase_css = "card-normal"
+                        icono = "🟢"
+                    elif estado == 'RIESGO: REVISAR':
+                        clase_css = "card-riesgo"
+                        icono = "⚠️"
+                    else:
+                        clase_css = "card-critico"
+                        icono = "🚨"
+                    
+                    tarjeta_html = f"""
+                    <div class="{clase_css}" style="border-radius: 8px; padding: 15px; margin-bottom: 15px; text-align: center;">
+                        <h4 style="margin: 0; font-size: 16px;">{id_buscado}</h4>
+                        <p style="margin: 5px 0; font-weight: bold; font-size: 13px;">{icono} {estado}</p>
+                        <p style="margin: 0; font-size: 12px; color: #cbd5e1;">
+                            Δ Temp: {temp}°C<br>
+                            Falla: {falla}
+                        </p>
+                    </div>
+                    """
+                else:
+                    # Si la máquina aún no ha reportado ninguna telemetría
+                    tarjeta_html = f"""
+                    <div class="card-offline">
+                        <h4 style="margin: 0; font-size: 16px; color: #64748b;">{id_buscado}</h4>
+                        <p style="margin: 5px 0; font-weight: bold; font-size: 13px; color: #64748b;">⚪ OFFLINE</p>
+                        <p style="margin: 0; font-size: 12px; color: #475569;">Sin datos en vivo</p>
+                    </div>
+                    """
+                
+                with col_actual:
+                    st.markdown(tarjeta_html, unsafe_allow_html=True)
+    else:
+        st.warning("Conectado a la API, pero la base de datos está vacía...")
+
+except Exception as e:
+    st.error(f"Esperando conexión con el servicio Backend... (Detalle: {e})")
+
+# Control de refresco nativo y elegante (Cada 2 segundos recarga el script limpiamente)
+time.sleep(2)
+st.rerun()

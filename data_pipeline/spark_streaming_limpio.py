@@ -1,6 +1,7 @@
 import os
 import sys
 import pandas as pd
+import numpy as np
 import joblib
 
 # Obligar a Python a escupir los prints en pantalla
@@ -101,7 +102,6 @@ def process_medallion_batch(batch_df, batch_id):
             print(f"ERROR CRÍTICO BRONCE: {e}", flush=True)
             
         # --- CAPA PLATA (Limpieza y Anonimización) ---
-        # Nota: El formato de timestamp ahora es yyyy-MM-dd HH:mm:ss según tu productor Python
         df_clean = batch_df \
             .withColumn("timestamp_lectura", to_timestamp(col("timestamp_lectura"), "yyyy-MM-dd HH:mm:ss")) \
             .withColumn("id_maquina", lower(col("id_maquina"))) \
@@ -124,7 +124,6 @@ def process_medallion_batch(batch_df, batch_id):
                 print(f"Plata guardada en BD ({registros_validos} limpios).", flush=True)
                 
                 # --- CAPA ORO (Feature Engineering + Machine Learning) ---
-                # Pasamos a Pandas para operar temporalmente
                 pdf = df_plata_final.toPandas()
                 pdf = pdf.sort_values(by=['id_maquina', 'timestamp_lectura'])
                 
@@ -157,21 +156,37 @@ def process_medallion_batch(batch_df, batch_id):
                 features = ['rpm', 'vibracion_mms', 'temp_c', 'corriente_motor_a', 'delta_temp', 'delta_vibracion', 'delta_corriente']
                 y_prob = modelo_rf.predict_proba(pdf[features])[:, 1]
                 
-                pdf['prediccion_riesgo'] = (y_prob >= 0.40).astype(int)
                 pdf['probabilidad_falla'] = y_prob.astype(float)
                 
-                # Armamos el DataFrame de Oro
-                pdf_oro = pdf[['timestamp_lectura', 'id_maquina', 'delta_temp', 'delta_vibracion', 
-                            'delta_corriente', 'prediccion_riesgo', 'probabilidad_falla']]
+                # --- NUEVA LÓGICA DE NEGOCIO (Data Mart / Capa de Consumo) ---
+                # 1. Redondear deltas a 2 decimales
+                pdf['delta_temp'] = pdf['delta_temp'].round(2)
+                pdf['delta_vibracion'] = pdf['delta_vibracion'].round(2)
+                pdf['delta_corriente'] = pdf['delta_corriente'].round(2)
                 
-                # Lo regresamos a Spark para aprovechar tu driver JDBC configurado
-                df_oro_spark = spark.createDataFrame(pdf_oro)
-                df_oro_spark.write.format("jdbc").option("url", JDBC_URL) \
-                    .option("dbtable", "predicciones_ia").option("user", DB_USER) \
+                # 2. Convertir la probabilidad a formato porcentaje (ej: "85.5%")
+                pdf['probabilidad_falla_pct'] = (pdf['probabilidad_falla'] * 100).round(1).astype(str) + "%"
+                
+                # 3. Clasificación del Semáforo (Umbrales 40% y 85%, sin emojis)
+                condiciones = [
+                    pdf['probabilidad_falla'] >= 0.85,
+                    pdf['probabilidad_falla'] >= 0.40
+                ]
+                opciones = ['CRITICO: PARADA', 'RIESGO: REVISAR']
+                pdf['estado_maquina'] = np.select(condiciones, opciones, default='NORMAL')
+                
+                # Armamos el DataFrame Final para el Dashboard
+                pdf_dashboard = pdf[['timestamp_lectura', 'id_maquina', 'delta_temp', 'delta_vibracion', 
+                                    'delta_corriente', 'estado_maquina', 'probabilidad_falla_pct']]
+                
+                # Lo regresamos a Spark y lo guardamos en la NUEVA tabla
+                df_dashboard_spark = spark.createDataFrame(pdf_dashboard)
+                df_dashboard_spark.write.format("jdbc").option("url", JDBC_URL) \
+                    .option("dbtable", "dashboard_tiempo_real").option("user", DB_USER) \
                     .option("password", DB_PASSWORD).option("driver", "org.postgresql.Driver") \
                     .mode("append").save()
                 
-                print(f"Oro (ML) guardada en BD. Predicciones listas.", flush=True)
+                print(f"Data Mart guardado en BD (Dashboard). Predicciones listas.", flush=True)
                 
             except Exception as e:
                 print(f"ERROR CRÍTICO PLATA/ORO: {e}", flush=True)

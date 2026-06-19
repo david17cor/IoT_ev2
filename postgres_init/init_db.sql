@@ -30,16 +30,16 @@ CREATE TABLE IF NOT EXISTS raw_records (
 );
 
 -- =========================================================================
--- 2. CAPA ORO (Ejecutar en la Base de Datos Gold - Puerto Local: 5435)
--- Repositorio de negocio consolidado y limpio.
+-- 3. CAPA DE CONSUMO / DATA MART (Ejecutar en la Base de Datos Gold)
+-- Tabla optimizada para lectura directa desde el Frontend (Streamlit)
 -- =========================================================================
 
-CREATE TABLE IF NOT EXISTS telemetria_limpia (
+CREATE TABLE IF NOT EXISTS dashboard_tiempo_real (
     timestamp_lectura TIMESTAMP,
-    id_maquina TEXT,
-    rpm FLOAT(4),
-    temperatura FLOAT(4),
-    op_id TEXT,
-    nombre_operador TEXT,
-    rut_op TEXT
+    id_maquina VARCHAR(50),
+    delta_temp FLOAT(4),
+    delta_vibracion FLOAT(4),
+    delta_corriente FLOAT(4),
+    estado_maquina VARCHAR(30),
+    probabilidad_falla_pct VARCHAR(10)
 );
