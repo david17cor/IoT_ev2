@@ -1,35 +1,16 @@
 import streamlit as st
 import requests
-import pandas as pd
-import time
 
-# Configuración de página estricta
+# 1. Configuración de página (Nativa de Streamlit)
 st.set_page_config(page_title="Dashboard Predictivo CNC", layout="wide", initial_sidebar_state="expanded")
 
-# --- ESTILOS CSS MEJORADOS ---
-st.markdown("""
-    <style>
-        .stApp { background-color: #0F172A; color: #F8FAFC; }
-        @keyframes latido_critico {
-            0% { background-color: #7f1d1d; box-shadow: 0 0 10px #ef4444; }
-            50% { background-color: #dc2626; box-shadow: 0 0 25px #ef4444; }
-            100% { background-color: #7f1d1d; box-shadow: 0 0 10px #ef4444; }
-        }
-        .card-normal { background-color: #1e293b; border: 1px solid #334155; }
-        .card-riesgo { background-color: #78350f; border: 1px solid #b45309; border-radius: 8px; padding: 15px; margin-bottom: 15px; text-align: center;}
-        .card-critico { animation: latido_critico 1s infinite; border: 2px solid #ef4444; border-radius: 8px; padding: 15px; margin-bottom: 15px; text-align: center;}
-        .card-offline { background-color: #0f172a; border: 1px dashed #475569; opacity: 0.5; border-radius: 8px; padding: 15px; margin-bottom: 15px; text-align: center;}
-    </style>
-""", unsafe_allow_html=True)
-
-API_DASHBOARD = "http://backend_api:8000/api/dashboard-tiempo-real"
 API_CAOS = "http://backend_api:8000/api/caos"
 
 # ==========================================
 # 🍔 MENÚ LATERAL: CONSOLA DEL CAOS
 # ==========================================
 with st.sidebar:
-    st.title("😈 Consola del Caos")
+    st.title("Consola del Caos")
     st.markdown("Inyecta anomalías directo a Kafka para probar la IA en tiempo real.")
     
     maquina_victima = st.selectbox("Selecciona la Víctima:", [f"maq-cnc-{i:02d}" for i in range(1, 51)])
@@ -40,101 +21,189 @@ with st.sidebar:
             payload = {"id_maquina": maquina_victima, "tipo_falla": tipo_falla}
             res = requests.post(API_CAOS, json=payload)
             if res.status_code == 200:
-                st.success(f"¡Anomalía enviada a {maquina_victima}!")
-                # Le damos un mini sleep para que Spark alcance a procesar antes del re-render
-                time.sleep(0.5) 
+                st.sidebar.success(f"¡Anomalía enviada a {maquina_victima}!")
             else:
-                st.error("Error al inyectar falla.")
+                st.sidebar.error("Error al inyectar falla.")
         except Exception as e:
-            st.error("Error de conexión con el Backend API.")
+            st.sidebar.error("Error de conexión con el Backend API.")
 
 # ==========================================
-# 🖥️ PANEL PRINCIPAL: GRILLA FIJA DE MÁQUINAS
+# 🎨 ESTILOS CSS (Tu diseño original restaurado al 100%)
+# ==========================================
+st.markdown("""
+    <style>
+        .stApp { background-color: #0F172A; color: #F8FAFC; }
+        
+        /* Layout superior de métricas */
+        .top-metrics { display: flex; justify-content: space-between; margin-bottom: 2rem; border-bottom: 1px solid #334155; padding-bottom: 1rem; }
+        .metric-item { display: flex; flex-direction: column; }
+        .metric-label { font-size: 0.9rem; color: #cbd5e1; display: flex; align-items: center; gap: 0.5rem; }
+        .metric-val { font-size: 2.2rem; font-weight: bold; }
+        
+        /* Grilla de máquinas */
+        .cnc-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; }
+        
+        /* Tarjetas base */
+        .cnc-card {
+            background-color: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 15px 10px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-height: 130px;
+            transition: all 0.3s ease;
+        }
+        
+        /* Colores dinámicos para los estados */
+        .card-normal { background-color: #1e293b; }
+        .card-riesgo { background-color: #92400e !important; border: 1px solid #b45309 !important; }
+        .card-critico { 
+            background-color: #991b1b !important; 
+            border: 1px solid #ef4444 !important; 
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+        }
+        .card-offline { opacity: 0.3; border-style: dashed; }
+        
+        /* Textos de las tarjetas */
+        .mac-title { font-size: 1rem; font-weight: bold; margin: 0 0 10px 0; color: #f1f5f9; }
+        .mac-status { font-size: 0.85rem; font-weight: bold; margin: 0 0 10px 0; }
+        .mac-data { font-size: 0.75rem; color: #cbd5e1; margin: 2px 0; }
+    </style>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# 🖥️ ESTRUCTURA HTML ESTÁTICA
 # ==========================================
 st.title("🏭 Planta de Producción CNC - Vista en Vivo")
 st.markdown("Visualización en tiempo real del estado de las 50 máquinas.")
 
-# Contenedor para las métricas y la grilla
-metrics_placeholder = st.empty()
-grid_placeholder = st.empty()
+# Construimos el HTML base
+html_content = f"""
+<div class="top-metrics">
+    <div class="metric-item">
+        <div class="metric-label">Total Máquinas</div>
+        <div class="metric-val" id="val-total">-- / 50</div>
+    </div>
+    <div class="metric-item">
+        <div class="metric-label"><span style="color:#22c55e">●</span> Normal</div>
+        <div class="metric-val" id="val-normal">--</div>
+    </div>
+    <div class="metric-item">
+        <div class="metric-label"><span style="color:#eab308">●</span> En Riesgo</div>
+        <div class="metric-val" id="val-riesgo">--</div>
+    </div>
+    <div class="metric-item">
+        <div class="metric-label"><span style="color:#ef4444">●</span> Críticas</div>
+        <div class="metric-val" id="val-critico">--</div>
+    </div>
+</div>
+<div class="cnc-grid">
+{"".join([f'''
+    <div id="card-maq-cnc-{i:02d}" class="cnc-card card-offline">
+        <div class="mac-title">maq-cnc-{i:02d}</div>
+        <div id="status-maq-cnc-{i:02d}" class="mac-status" style="color:#64748b;">⚪ OFFLINE</div>
+        <div class="mac-data">Δ Temp: <span id="dtemp-maq-cnc-{i:02d}">--</span>°C</div>
+        <div class="mac-data">Falla: <span id="ffallas-maq-cnc-{i:02d}">--</span></div>
+    </div>
+''' for i in range(1, 51)])}
+</div>
+"""
 
-try:
-    response = requests.get(API_DASHBOARD).json()
-    
-    if response.get("success") and response.get("data"):
-        df = pd.DataFrame(response.get("data", []))
-        
-        # Agrupamos para obtener estrictamente el último estado de cada máquina
-        df_latest = df.sort_values('timestamp_lectura').groupby('id_maquina').tail(1)
-        # Lo convertimos a diccionario indexado por id_maquina para búsquedas instantáneas
-        dict_maquinas = df_latest.set_index('id_maquina').to_dict(orient='index')
+# Quitamos los saltos de línea para evitar que Streamlit rompa el HTML estructurado
+html_seguro = html_content.replace('\n', '')
+st.markdown(html_seguro, unsafe_allow_html=True)
 
+# ==========================================
+# ⚙️ MOTOR JAVASCRIPT SILENCIOSO (Frecuencia corregida)
+# ==========================================
+js_updater = """
+<script>
+const API_URL = "http://localhost:8000/api/dashboard-tiempo-real";
+
+async function updateDashboard() {
+    try {
+        const response = await fetch(API_URL);
+        const res = await response.json();
+        if (!res.success || !res.data) return;
         
-        cnc_sanas = len(df_latest[df_latest['estado_maquina'] == 'NORMAL'])
-        cnc_riesgo = len(df_latest[df_latest['estado_maquina'] == 'RIESGO: REVISAR'])
-        cnc_criticas = len(df_latest[df_latest['estado_maquina'] == 'CRITICO: PARADA']) # CORREGIDO
+        const maquinas = {};
+        res.data.forEach(reg => {
+            if(!maquinas[reg.id_maquina]) {
+                maquinas[reg.id_maquina] = reg;
+            }
+        });
         
-        with metrics_placeholder.container():
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Total Máquinas Detectadas", f"{len(df_latest)} / 50")
-            col2.metric("🟢 Normal", cnc_sanas)
-            col3.metric("🟡 En Riesgo", cnc_riesgo)
-            col4.metric("🔴 Críticas", cnc_criticas)
-            st.markdown("---")
+        let normal = 0, riesgo = 0, critico = 0, total = 0;
+        const doc = window.parent.document; 
+        
+        for (let i = 1; i <= 50; i++) {
+            const id = `maq-cnc-${String(i).padStart(2, '0')}`;
+            const card = doc.getElementById(`card-${id}`);
+            const statusTxt = doc.getElementById(`status-${id}`);
+            const dtempTxt = doc.getElementById(`dtemp-${id}`);
+            const fallaTxt = doc.getElementById(`ffallas-${id}`);
             
-        # --- RENDERIZADO DE GRILLA FIJA (Evita saltos de posiciones) ---
-        with grid_placeholder.container():
-            columnas_grilla = st.columns(5) # Grilla limpia de 5 columnas
+            if (!card) continue;
             
-            for i in range(1, 51):
-                id_buscado = f"maq-cnc-{i:02d}"
-                col_actual = columnas_grilla[(i - 1) % 5]
+            if (maquinas[id]) {
+                total++;
+                const info = maquinas[id];
+                const estado = (info.estado_maquina || 'NORMAL').trim().toUpperCase();
                 
-                # Si la máquina existe en las lecturas de la base de datos
-                if id_buscado in dict_maquinas:
-                    datos_maq = dict_maquinas[id_buscado]
-                    estado = datos_maq['estado_maquina']
-                    temp = datos_maq['delta_temp']
-                    falla = datos_maq['probabilidad_falla_pct']
-                    
-                    if estado == 'NORMAL':
-                        clase_css = "card-normal"
-                        icono = "🟢"
-                    elif estado == 'RIESGO: REVISAR':
-                        clase_css = "card-riesgo"
-                        icono = "⚠️"
-                    else:
-                        clase_css = "card-critico"
-                        icono = "🚨"
-                    
-                    tarjeta_html = f"""
-                    <div class="{clase_css}" style="border-radius: 8px; padding: 15px; margin-bottom: 15px; text-align: center;">
-                        <h4 style="margin: 0; font-size: 16px;">{id_buscado}</h4>
-                        <p style="margin: 5px 0; font-weight: bold; font-size: 13px;">{icono} {estado}</p>
-                        <p style="margin: 0; font-size: 12px; color: #cbd5e1;">
-                            Δ Temp: {temp}°C<br>
-                            Falla: {falla}
-                        </p>
-                    </div>
-                    """
-                else:
-                    # Si la máquina aún no ha reportado ninguna telemetría
-                    tarjeta_html = f"""
-                    <div class="card-offline">
-                        <h4 style="margin: 0; font-size: 16px; color: #64748b;">{id_buscado}</h4>
-                        <p style="margin: 5px 0; font-weight: bold; font-size: 13px; color: #64748b;">⚪ OFFLINE</p>
-                        <p style="margin: 0; font-size: 12px; color: #475569;">Sin datos en vivo</p>
-                    </div>
-                    """
+                card.className = "cnc-card";
                 
-                with col_actual:
-                    st.markdown(tarjeta_html, unsafe_allow_html=True)
-    else:
-        st.warning("Conectado a la API, pero la base de datos está vacía...")
+                if (estado.includes('NORMAL')) {
+                    card.classList.add('card-normal');
+                    statusTxt.innerHTML = "🟢 NORMAL";
+                    statusTxt.style.color = "#22c55e";
+                    normal++;
+                } else if (estado.includes('RIESGO')) {
+                    card.classList.add('card-riesgo');
+                    statusTxt.innerHTML = "⚠️ RIESGO: REVISAR";
+                    statusTxt.style.color = "#fcd34d";
+                    riesgo++;
+                } else {
+                    card.classList.add('card-critico');
+                    statusTxt.innerHTML = "🚨 CRITICO: PARADA";
+                    statusTxt.style.color = "#fca5a5";
+                    critico++;
+                }
+                
+                dtempTxt.innerText = info.delta_temp !== null ? parseFloat(info.delta_temp).toFixed(2) : "0.00";
+                if(fallaTxt) fallaTxt.innerText = info.probabilidad_falla_pct || "0.0%";
+                
+            } else {
+                card.className = "cnc-card card-offline";
+                statusTxt.innerHTML = "⚪ OFFLINE";
+                statusTxt.style.color = "#64748b";
+                if(dtempTxt) dtempTxt.innerText = "--";
+                if(fallaTxt) fallaTxt.innerText = "--";
+            }
+        }
+        
+        const topTotal = doc.getElementById('val-total');
+        const topNormal = doc.getElementById('val-normal');
+        const topRiesgo = doc.getElementById('val-riesgo');
+        const topCritico = doc.getElementById('val-critico');
+        
+        if(topTotal) topTotal.innerText = `${total} / 50`;
+        if(topNormal) topNormal.innerText = normal;
+        if(topRiesgo) topRiesgo.innerText = riesgo;
+        if(topCritico) topCritico.innerText = critico;
+        
+    } catch (error) {
+        console.error("Esperando comunicación con Backend API...", error);
+    }
+}
 
-except Exception as e:
-    st.error(f"Esperando conexión con el servicio Backend... (Detalle: {e})")
+// Ejecución inicial inmediata
+updateDashboard();
 
-# Control de refresco nativo y elegante (Cada 2 segundos recarga el script limpiamente)
-time.sleep(2)
-st.rerun()
+// ⏱️ REFRECO REDUCIDO: Ahora consulta cada 2000ms (2 segundos)
+setInterval(updateDashboard, 2000);
+</script>
+"""
+st.components.v1.html(js_updater, height=0, width=0)

@@ -48,22 +48,28 @@ engine_gold = sqlalchemy.create_engine(DATABASE_URL_GOLD)
 engine_bronze = sqlalchemy.create_engine(DATABASE_URL_BRONZE)
 
 # ==========================================
-# CONFIGURACIÓN DE KAFKA (Para Consola del Caos)
+# CONFIGURACIÓN DE KAFKA (Lazy Initialization)
 # ==========================================
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:9092")
-KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "telemetria_sucia") # Ajusta al nombre real de tu tópico
+KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "telemetria_sucia")
 
-# Inicializamos el productor de Kafka
-try:
-    producer = KafkaProducer(
-        bootstrap_servers=['kafka:9092'],
-        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-        # Pequeño timeout para no bloquear la API si Kafka no está disponible
-        api_version_auto_timeout_ms=3000 
-    )
-except Exception as e:
-    print(f"⚠️ Advertencia: No se pudo conectar a Kafka. La Consola del Caos podría fallar. Error: {e}")
-    producer = None
+_producer = None
+
+def get_kafka_producer():
+    """Patrón Singleton/Lazy Init: Solo se conecta a Kafka cuando se necesita."""
+    global _producer
+    if _producer is None:
+        try:
+            _producer = KafkaProducer(
+                bootstrap_servers=[KAFKA_BROKER],
+                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+                api_version_auto_timeout_ms=5000,
+                retries=3
+            )
+            print("✅ Conexión exitosa a Kafka establecida.")
+        except Exception as e:
+            raise Exception(f"Fallo crítico conectando a Kafka en {KAFKA_BROKER}: {str(e)}")
+    return _producer
 
 # ==========================================
 # MODELOS DE DATOS (PYDANTIC)
@@ -79,23 +85,19 @@ class PeticionCaos(BaseModel):
 def home():
     return {
         "status": "API Operativa", 
-        "endpoints": [
-            "/api/dashboard-tiempo-real",
-            "/api/caos",
-            "/api/telemetria", 
-            "/api/consulta-cruda"
-        ]
+        "endpoints": ["/api/dashboard-tiempo-real", "/api/caos", "/api/telemetria", "/api/consulta-cruda"]
     }
 
 # ==========================================
-# NUEVO: CONSOLA DEL CAOS (Inyección Kafka)
+# CONSOLA DEL CAOS (Inyección Kafka)
 # ==========================================
 @app.post("/api/caos")
 def inyectar_falla(peticion: PeticionCaos):
-    if not producer:
-        raise HTTPException(status_code=500, detail="El Productor de Kafka no está conectado.")
+    try:
+        producer = get_kafka_producer()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
         
-    # 1. Valores base (Normales)
     telemetria_maliciosa = {
         "id_maquina": peticion.id_maquina,
         "timestamp_lectura": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
@@ -105,48 +107,74 @@ def inyectar_falla(peticion: PeticionCaos):
         "corriente_motor_a": random.uniform(10, 15)
     }
 
-    # 2. Corrompemos los datos según el tipo de falla seleccionado en el Frontend
     if peticion.tipo_falla == "Falla Térmica":
-        telemetria_maliciosa["temp_c"] = random.uniform(110, 150) # Temperatura extrema
+        telemetria_maliciosa["temp_c"] = random.uniform(110, 150)
     elif peticion.tipo_falla == "Desalineación (Vibración)":
-        telemetria_maliciosa["vibracion_mms"] = random.uniform(15, 30) # Vibración destructiva
+        telemetria_maliciosa["vibracion_mms"] = random.uniform(15, 30)
     elif peticion.tipo_falla == "Cortocircuito":
-        telemetria_maliciosa["corriente_motor_a"] = random.uniform(50, 80) # Pico de corriente
+        telemetria_maliciosa["corriente_motor_a"] = random.uniform(50, 80)
         
     try:
-        # 3. Enviamos el dato envenenado a Kafka
         producer.send(KAFKA_TOPIC, telemetria_maliciosa)
         producer.flush()
         
         return {
             "success": True, 
-            "message": f"Falla '{peticion.tipo_falla}' inyectada con éxito en {peticion.id_maquina}.",
+            "message": f"Falla '{peticion.tipo_falla}' inyectada en {peticion.id_maquina}.",
             "payload_enviado": telemetria_maliciosa
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error enviando mensaje a Kafka: {str(e)}")
 
 # ==========================================
-# ENDPOINT V2.0 - DASHBOARD EN VIVO
+# 🌟 ENDPOINT REFORMADO: DASHBOARD TIEMPO REAL
 # ==========================================
 @app.get("/api/dashboard-tiempo-real")
 def obtener_dashboard_predictivo():
     try:
-        query = "SELECT * FROM dashboard_tiempo_real ORDER BY timestamp_lectura DESC LIMIT 500"
+        # Usamos comillas triples para la query SQL, evita problemas de formato
+        query = """
+            SELECT DISTINCT ON (id_maquina) 
+                id_maquina, 
+                estado_maquina, 
+                temp_actual, 
+                vibracion_actual, 
+                corriente_actual, 
+                delta_temp, 
+                probabilidad_falla_pct, 
+                timestamp_lectura 
+            FROM dashboard_tiempo_real 
+            ORDER BY id_maquina, timestamp_lectura DESC;
+        """
+        
         df = pd.read_sql(query, engine_gold)
         
+        if df.empty:
+            return {"success": True, "count": 0, "data": []}
+            
         if 'timestamp_lectura' in df.columns:
             df['timestamp_lectura'] = df['timestamp_lectura'].astype(str)
             
-        df = df.dropna()
-        datos = df.to_dict(orient="records")
+        # 🌟 HOMOLOGACIÓN DE COLUMNAS (Mapeo de seguridad para blindar el Frontend)
+        mapeo_columnas = {
+            'temp_c': 'temp_actual',
+            'vibracion_mms': 'vibracion_actual',
+            'corriente_motor_a': 'corriente_actual'
+        }
+        df = df.rename(columns={k: v for k, v in mapeo_columnas.items() if k in df.columns})
         
-        return {"success": True, "count": len(datos), "data": datos}
+        # 🌟 FILTRADO QUIRÚRGICO
+        df = df.dropna(subset=['id_maquina', 'estado_maquina'])
+        
+        # Reemplazamos NaNs restantes por None
+        df = df.where(pd.notnull(df), None)
+        
+        return {"success": True, "count": len(df), "data": df.to_dict(orient="records")}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 # ==========================================
-# ENDPOINTS V1.2 (Conservados por compatibilidad)
+# OTROS ENDPOINTS
 # ==========================================
 @app.get("/api/telemetria")
 def obtener_telemetria_limpia():
@@ -155,24 +183,20 @@ def obtener_telemetria_limpia():
         df = pd.read_sql(query, engine_gold)
         if 'timestamp_lectura' in df.columns:
             df['timestamp_lectura'] = df['timestamp_lectura'].astype(str)
-        df = df.dropna()
-        datos = df.to_dict(orient="records")
-        
-        total_records = pd.read_sql("SELECT COUNT(*) FROM telemetria_limpia", engine_gold).iloc[0, 0]
-        return {"success": True, "count": len(datos), "total_db": int(total_records), "data": datos}
+            
+        df = df.dropna(subset=['id_maquina'])
+        df = df.where(pd.notnull(df), None)
+        return {"success": True, "data": df.to_dict(orient="records")}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 @app.get("/api/consulta-cruda")
 def obtener_telemetria_cruda():
     try:
-        query = "SELECT * FROM raw_records ORDER BY \"timestamp_lectura\" DESC LIMIT 20"
+        query = "SELECT * FROM raw_records ORDER BY timestamp_lectura DESC LIMIT 20"
         df = pd.read_sql(query, engine_bronze)
         if 'timestamp_lectura' in df.columns:
             df['timestamp_lectura'] = df['timestamp_lectura'].astype(str)
-        datos = df.to_dict(orient="records")
-        
-        total_records = pd.read_sql("SELECT COUNT(*) FROM raw_records", engine_bronze).iloc[0, 0]
-        return {"success": True, "count": len(datos), "total_db": int(total_records), "data": datos}
+        return {"success": True, "data": df.to_dict(orient="records")}
     except Exception as e:
         return {"success": False, "error": str(e)}

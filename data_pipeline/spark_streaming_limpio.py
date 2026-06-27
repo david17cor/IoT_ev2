@@ -90,7 +90,7 @@ def process_medallion_batch(batch_df, batch_id):
     total_crudos = batch_df.count()
     
     if total_crudos > 0:
-        # ---  CAPA BRONCE (MinIO) ---
+        # ---   CAPA BRONCE (MinIO) ---
         try:
             df_bronze = batch_df.withColumn("ingest_timestamp", current_timestamp())
             df_bronze.write \
@@ -164,6 +164,11 @@ def process_medallion_batch(batch_df, batch_id):
                 pdf['delta_vibracion'] = pdf['delta_vibracion'].round(2)
                 pdf['delta_corriente'] = pdf['delta_corriente'].round(2)
                 
+                # 🌟 REFORMA ARQUITECTÓNICA: Mapear y redondear lecturas de telemetría reales (Brutas)
+                pdf['temp_actual'] = pdf['temp_c'].round(2)
+                pdf['vibracion_actual'] = pdf['vibracion_mms'].round(2)
+                pdf['corriente_actual'] = pdf['corriente_motor_a'].round(2)
+                
                 # 2. Convertir la probabilidad a formato porcentaje (ej: "85.5%")
                 pdf['probabilidad_falla_pct'] = (pdf['probabilidad_falla'] * 100).round(1).astype(str) + "%"
                 
@@ -175,18 +180,21 @@ def process_medallion_batch(batch_df, batch_id):
                 opciones = ['CRITICO: PARADA', 'RIESGO: REVISAR']
                 pdf['estado_maquina'] = np.select(condiciones, opciones, default='NORMAL')
                 
-                # Armamos el DataFrame Final para el Dashboard
-                pdf_dashboard = pdf[['timestamp_lectura', 'id_maquina', 'delta_temp', 'delta_vibracion', 
-                                    'delta_corriente', 'estado_maquina', 'probabilidad_falla_pct']]
+                # 🌟 REFORMA ARQUITECTÓNICA: Armamos el DataFrame Final incluyendo los datos brutos
+                pdf_dashboard = pdf[[
+                    'timestamp_lectura', 'id_maquina', 'delta_temp', 'delta_vibracion', 
+                    'delta_corriente', 'estado_maquina', 'probabilidad_falla_pct',
+                    'temp_actual', 'vibracion_actual', 'corriente_actual'
+                ]]
                 
-                # Lo regresamos a Spark y lo guardamos en la NUEVA tabla
+                # Lo regresamos a Spark y lo guardamos en la tabla relacional
                 df_dashboard_spark = spark.createDataFrame(pdf_dashboard)
                 df_dashboard_spark.write.format("jdbc").option("url", JDBC_URL) \
                     .option("dbtable", "dashboard_tiempo_real").option("user", DB_USER) \
                     .option("password", DB_PASSWORD).option("driver", "org.postgresql.Driver") \
                     .mode("append").save()
                 
-                print(f"Data Mart guardado en BD (Dashboard). Predicciones listas.", flush=True)
+                print(f"Data Mart guardado en BD (Dashboard). Predicciones y Telemetría actualizadas.", flush=True)
                 
             except Exception as e:
                 print(f"ERROR CRÍTICO PLATA/ORO: {e}", flush=True)
