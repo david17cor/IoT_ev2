@@ -1,14 +1,14 @@
-# Usamos una imagen ligera de Python
 FROM python:3.11-slim
 
-# Establecemos el directorio de trabajo
 WORKDIR /app
 
-# Copiamos el script al contenedor
-COPY productor_sucio_kafka.py /app/
+# Copiar el archivo de dependencias
+COPY requirements.txt .
 
-# Instalamos la librería de Kafka (Ajusta 'kafka-python' si usaste 'confluent-kafka')
-RUN pip install --no-cache-dir kafka-python
+# Instalar todas las dependencias
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Comando para ejecutar el sensor infinito
+# Copiar el código
+COPY productor_sucio_kafka.py .
+
 CMD ["python", "productor_sucio_kafka.py"]

@@ -19,6 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar el código y el modelo
 COPY spark_streaming_limpio.py .
-COPY modelo_v3_cnc.pkl .
+COPY modelo_cnc.pkl .
 
 CMD ["python", "spark_streaming_limpio.py"]

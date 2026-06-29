@@ -2,88 +2,125 @@ import os
 import json
 import random
 import time
+import redis
 from datetime import datetime
 from kafka import KafkaProducer
 
-print("🚀 Productor IoT V2.0 (Física Stateful y Degradación Continua) iniciado...", flush=True)
+print("Productor IoT V3.0 (Integracion Redis y Estado INACTIVO) iniciado...", flush=True)
 
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:9092")
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+
 producer = KafkaProducer(
     bootstrap_servers=[KAFKA_BROKER],
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 
+try:
+    redis_client = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
+    redis_client.ping()
+    print("Conexion exitosa con Redis.", flush=True)
+except Exception as e:
+    print(f"Error conectando a Redis: {e}", flush=True)
+
 TOPIC_NAME = 'telemetria_sucia'
-NUM_MAQUINAS = 50
-OPERADORES = [{"id": f"OP-00{i}", "nombre": f" Operador {i} ", "rut": f"1{i}.333.444-K"} for i in range(1, 51)]
+NUM_MAQUINAS = 25
+OPERADORES = [{"id": f"OP-00{i}", "nombre": f" Operador {i} ", "rut": f"1{i}.333.444-K"} for i in range(1, NUM_MAQUINAS + 1)]
 
 def iniciar_estado_maquinas():
-    """Crea la memoria interna de la planta: inercia inicial y desgaste para las 50 máquinas"""
     estado = {}
     for i in range(1, NUM_MAQUINAS + 1):
         id_maquina = f"maq-cnc-{i:02d}"
         estado[id_maquina] = {
             "rpm": random.uniform(1420, 1480),
-            "desgaste_interno": random.uniform(0, 30)
+            "desgaste_interno": random.uniform(0, 30),
+            "tiempo_critico_inicio": None,
+            "inactivo": False
         }
     return estado
 
 def generar_datos_streaming():
-    # Inicializamos la "vida" de las máquinas en la RAM
     maquinas = iniciar_estado_maquinas()
-    print("Emulando planta industrial de 50 máquinas CNC...", flush=True)
+    print(f"Emulando planta industrial de {NUM_MAQUINAS} maquinas CNC...", flush=True)
     
     while True:
-        # En cada ciclo, hacemos avanzar el tiempo y la física para TODAS las máquinas
+        # Revisar señales de mantenimiento desde Redis antes del ciclo fisico
+        for id_maquina in maquinas.keys():
+            clave_redis = f"reparacion:{id_maquina}"
+            if redis_client.get(clave_redis):
+                # Aplicar mantenimiento
+                maquinas[id_maquina]["desgaste_interno"] = random.uniform(0, 5)
+                maquinas[id_maquina]["tiempo_critico_inicio"] = None
+                maquinas[id_maquina]["inactivo"] = False
+                redis_client.delete(clave_redis)
+                print(f"MANTENIMIENTO APLICADO EN {id_maquina}. Valores restablecidos.", flush=True)
+
         for id_maquina, estado in maquinas.items():
             
-            # 1. Inercia de RPM
-            estado["rpm"] += random.uniform(-5.0, 5.0)
-            estado["rpm"] = max(1400.0, min(estado["rpm"], 1500.0))
-            
-            # 2. Desgaste no lineal progresivo
-            estado["desgaste_interno"] += random.uniform(0.10, 0.35)
-            desgaste = estado["desgaste_interno"]
-            
-            if desgaste < 40: factor_desgaste = 0.10
-            elif desgaste < 70: factor_desgaste = 0.15
-            else: factor_desgaste = 0.25
-                
-            # 3. Física Multivariable Observada
-            rpm = estado["rpm"]
-            vibracion = 5.0 + ((rpm - 1400) * 0.01) + (desgaste * factor_desgaste) + random.uniform(-0.5, 0.5)
-            temp = 55.0 + (vibracion * 1.5) + random.uniform(-1.0, 1.0)
-            corriente = 8.0 + (vibracion * 0.3) + (desgaste * 0.05) + random.uniform(-0.2, 0.2)
-            
-            # 4. Falla Probabilística (El Colapso Real)
-            prob_falla = 0.0
-            if desgaste > 65: prob_falla += 0.01
-            if vibracion > 14: prob_falla += 0.015
-            if temp > 80: prob_falla += 0.015
-                
-            es_falla = False
-            if prob_falla > 0 and random.random() < prob_falla:
-                es_falla = True
-                # Simulamos que los mecánicos reparan la máquina
-                estado["desgaste_interno"] = random.uniform(0, 5)
-                print(f"💥 ¡MANTENIMIENTO CORRECTIVO EN {id_maquina}! (Desgaste reiniciado)", flush=True)
-                
-            # 5. Anomalías de Sensores (Ruido)
-            if random.random() < 0.005:
-                temp_final = random.choice([200.0, 0.0])
-                vibr_final = random.choice([50.0, 0.0])
+            # Si la maquina esta inactiva, se saltan las fisicas de desgaste
+            if estado["inactivo"]:
+                rpm_str = "0.0"
+                vibr_final = 0.0
+                temp_final = 25.0 # Temperatura ambiente
+                corriente = 0.0
+                es_falla = False
             else:
-                temp_final = temp
-                vibr_final = vibracion
+                # 1. Inercia de RPM
+                estado["rpm"] += random.uniform(-5.0, 5.0)
+                estado["rpm"] = max(1400.0, min(estado["rpm"], 1500.0))
                 
-            # 6. Suciedad de Datos (Para que Spark limpie)
-            rpm_str = round(rpm, 2)
-            if random.random() < 0.1: 
-                rpm_str = str(rpm_str).replace(".", ",")
+                # 2. Desgaste progresivo con tope en 85
+                estado["desgaste_interno"] += random.uniform(0.15, 0.40)
+                estado["desgaste_interno"] = min(estado["desgaste_interno"], 85.0)
+                desgaste = estado["desgaste_interno"]
                 
+                if desgaste < 40: factor_desgaste = 0.10
+                elif desgaste < 70: factor_desgaste = 0.15
+                else: factor_desgaste = 0.25
+                    
+                # Logica del Estado Inactivo (4 minutos en 85 de desgaste)
+                if desgaste >= 85.0:
+                    if estado["tiempo_critico_inicio"] is None:
+                        estado["tiempo_critico_inicio"] = time.time()
+                        print(f"ADVERTENCIA: {id_maquina} alcanzo limite critico. Iniciando cuenta regresiva de 3 minutos.", flush=True)
+                    elif (time.time() - estado["tiempo_critico_inicio"]) >= 240:
+                        estado["inactivo"] = True
+                        print(f"APAGADO AUTOMATICO: {id_maquina} paso a estado INACTIVO por seguridad.", flush=True)
+                else:
+                    estado["tiempo_critico_inicio"] = None
+
+                # 3. Fisica Multivariable Observada
+                rpm = estado["rpm"]
+                vibracion = 2.5 + ((rpm - 1400) * 0.005) + (desgaste * (factor_desgaste * 0.7)) + random.uniform(-0.2, 0.2)
+                temp = 34.0 + (vibracion * 1.5) + random.uniform(-0.5, 0.5)
+                corriente = 7.5 + (vibracion * 0.3) + (desgaste * 0.05) + random.uniform(-0.2, 0.2)
+                
+                # 4. Falla Probabilistica (Removida regeneracion automatica)
+                prob_falla = 0.0
+                if desgaste > 65: prob_falla += 0.01
+                if vibracion > 14: prob_falla += 0.015
+                if temp > 80: prob_falla += 0.015
+                    
+                es_falla = False
+                if prob_falla > 0 and random.random() < prob_falla:
+                    es_falla = True
+                    
+                # 5. Anomalias de Sensores
+                if random.random() < 0.005:
+                    temp_final = random.choice([95.0, 0.0])
+                    vibr_final = random.choice([25.0, 0.0])
+                else:
+                    temp_final = temp
+                    vibr_final = vibracion
+                    
+                # 6. Suciedad de Datos
+                rpm_str = str(round(rpm, 2))
+                if random.random() < 0.1: 
+                    rpm_str = rpm_str.replace(".", ",")
+                    
             op = random.choice(OPERADORES)
             
-            # 7. Empaquetado y envío
+            # 7. Empaquetado
             payload = {
                 "timestamp_lectura": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "id_maquina": id_maquina,
@@ -94,14 +131,13 @@ def generar_datos_streaming():
                 "op_id": op["id"],
                 "Nombre_Operador": op["nombre"],
                 "rut_op": op["rut"],
-                # Flag para el dashboard visual, el modelo Spark la ignorará
-                "colapso_fisico_real": es_falla 
+                "colapso_fisico_real": es_falla,
+                "maquina_inactiva": estado["inactivo"]
             }
             
             producer.send(TOPIC_NAME, value=payload)
         
-        # Pausamos el script 1 segundo antes del próximo ciclo de la planta completa
-        time.sleep(1)
+        time.sleep(1.5)
 
 if __name__ == "__main__":
     generar_datos_streaming()
