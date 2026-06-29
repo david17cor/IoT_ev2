@@ -9,7 +9,7 @@ COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 3. Copiar el código del frontend
-COPY app_frontend.py /app/
+COPY . /app/
 
 # Exponer el puerto de Streamlit
 EXPOSE 8501
