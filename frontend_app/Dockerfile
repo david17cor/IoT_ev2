@@ -2,10 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Instalar dependencias de Streamlit
-RUN pip install --no-cache-dir streamlit pandas requests
+# 1. Copiar el archivo de requerimientos primero
+COPY requirements.txt /app/
 
-# Copiar el código del frontend
+# 2. Instalar las dependencias desde el archivo
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 3. Copiar el código del frontend
 COPY app_frontend.py /app/
 
 # Exponer el puerto de Streamlit
