@@ -57,17 +57,44 @@ if vista_actual == "Monitor en Tiempo Real":
     """
     st.markdown(html_content, unsafe_allow_html=True)
 
+    # ==============================================================
+    # 🛡️ JAVASCRIPT REFORMADO (Lógica Senior "Anti-Parpadeo")
+    # ==============================================================
     js_updater = """
     <script>
+    let isUpdating = false;
+    let ultimoEstadoValido = [];
+
     async function updateDashboard() {
+        if (isUpdating) return;
+        isUpdating = true;
+
         try {
-            const res = await (await fetch("http://34.176.77.168:8000/api/dashboard-tiempo-real")).json();
+            console.time("api_fetch");
+            const response = await fetch("http://34.176.77.168:8000/api/dashboard-tiempo-real");
+            
+            if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+            
+            const res = await response.json();
+            console.timeEnd("api_fetch");
+            
             if (!res.success) return;
+
+            // 🛑 LA REGLA DE ORO: Ignorar micro-cortes de Spark
+            if (!res.data || res.data.length === 0) {
+                console.warn("⚠️ API devolvió 0 máquinas (Truncate de Spark detectado). Congelando visualización.");
+                return; 
+            }
+
+            // Memoria persistente
+            ultimoEstadoValido = res.data;
+            
             const maquinas = {};
-            res.data.forEach(reg => maquinas[reg.id_maquina] = reg);
+            ultimoEstadoValido.forEach(reg => maquinas[reg.id_maquina] = reg);
             
             let normal = 0, riesgo = 0, critico = 0, total = 0;
             const doc = window.parent.document; 
+            if (!doc) return;
             
             for (let i = 1; i <= 25; i++) {
                 const id = `maq-cnc-${String(i).padStart(2, '0')}`;
@@ -80,22 +107,50 @@ if vista_actual == "Monitor en Tiempo Real":
                     const estado = (info.estado_maquina || 'NORMAL').toUpperCase();
                     card.className = "cnc-card";
                     
-                    if (estado.includes('NORMAL')) { card.classList.add('card-normal'); doc.getElementById(`status-${id}`).innerHTML = "🟢 NORMAL"; doc.getElementById(`status-${id}`).style.color = "#22c55e"; normal++; }
-                    else if (estado.includes('RIESGO')) { card.classList.add('card-riesgo'); doc.getElementById(`status-${id}`).innerHTML = "⚠️ RIESGO"; doc.getElementById(`status-${id}`).style.color = "#fcd34d"; riesgo++; }
-                    else if (estado.includes('INACTIVO')) { card.classList.add('card-inactivo'); doc.getElementById(`status-${id}`).innerHTML = "💤 INACTIVO"; doc.getElementById(`status-${id}`).style.color = "#cbd5e1"; }
-                    else { card.classList.add('card-critico'); doc.getElementById(`status-${id}`).innerHTML = "🚨 CRITICO"; doc.getElementById(`status-${id}`).style.color = "#fca5a5"; critico++; }
+                    if (estado.includes('NORMAL')) { 
+                        card.classList.add('card-normal'); 
+                        doc.getElementById(`status-${id}`).innerHTML = "🟢 NORMAL"; 
+                        doc.getElementById(`status-${id}`).style.color = "#22c55e"; 
+                        normal++; 
+                    }
+                    else if (estado.includes('RIESGO')) { 
+                        card.classList.add('card-riesgo'); 
+                        doc.getElementById(`status-${id}`).innerHTML = "⚠️ RIESGO"; 
+                        doc.getElementById(`status-${id}`).style.color = "#fcd34d"; 
+                        riesgo++; 
+                    }
+                    else if (estado.includes('INACTIVO')) { 
+                        card.classList.add('card-inactivo'); 
+                        doc.getElementById(`status-${id}`).innerHTML = "💤 INACTIVO"; 
+                        doc.getElementById(`status-${id}`).style.color = "#cbd5e1"; 
+                    }
+                    else { 
+                        card.classList.add('card-critico'); 
+                        doc.getElementById(`status-${id}`).innerHTML = "🚨 CRITICO"; 
+                        doc.getElementById(`status-${id}`).style.color = "#fca5a5"; 
+                        critico++; 
+                    }
                     
                     doc.getElementById(`dtemp-${id}`).innerText = info.delta_temp !== null ? parseFloat(info.delta_temp).toFixed(2) : "0.00";
                     doc.getElementById(`ffallas-${id}`).innerText = info.probabilidad_falla_pct || "0.0%";
                 }
             }
+            
+            // Actualización de contadores estables
             if(doc.getElementById('val-total')) doc.getElementById('val-total').innerText = `${total} / 25`;
             if(doc.getElementById('val-normal')) doc.getElementById('val-normal').innerText = normal;
             if(doc.getElementById('val-riesgo')) doc.getElementById('val-riesgo').innerText = riesgo;
             if(doc.getElementById('val-critico')) doc.getElementById('val-critico').innerText = critico;
-        } catch (e) {}
+            
+        } catch (e) {
+            console.error("❌ Error de comunicación con la API:", e);
+        } finally {
+            isUpdating = false;
+        }
     }
-    updateDashboard(); setInterval(updateDashboard, 2000);
+    
+    updateDashboard(); 
+    setInterval(updateDashboard, 2000);
     </script>
     """
     st.components.v1.html(js_updater, height=0, width=0)
@@ -144,12 +199,10 @@ elif vista_actual == "Analíticas del Modelo":
     st.markdown("Evaluación técnica del algoritmo de Machine Learning predictivo.")
     
     # --- TRUCO DE RUTAS ABSOLUTAS ---
-    # Obtiene la ruta exacta de la carpeta donde está este script (app_frontend.py)
     DIRECTORIO_BASE = os.path.dirname(os.path.abspath(__file__))
     
-    # Construimos las rutas absolutas para cada imagen
     ruta_matriz = os.path.join(DIRECTORIO_BASE, "matriz_confusion.png")
-    ruta_gini = os.path.join(DIRECTORIO_BASE, "gini.png") # Ajustado a 'gini.png' como lo tienes en VS Code
+    ruta_gini = os.path.join(DIRECTORIO_BASE, "gini.png")
     ruta_roc = os.path.join(DIRECTORIO_BASE, "curva_roc.png")
     
     col1, col2 = st.columns(2)
@@ -169,7 +222,6 @@ elif vista_actual == "Analíticas del Modelo":
             
     with col2:
         st.subheader("Métricas de Clasificación")
-        # Resultados exactos de nuestro script de Colab
         st.metric("Accuracy (Exactitud)", "87.6%") 
         st.metric("Recall (Sensibilidad)", "94.2%")
         st.metric("F1-Score", "75.7%")
