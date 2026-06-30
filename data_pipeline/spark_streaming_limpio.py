@@ -71,8 +71,8 @@ kafka_stream = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "kafka_broker:9092") \
     .option("subscribe", "telemetria_sucia") \
-    .option("startingOffsets", "earliest") \
-    .option("maxOffsetsPerTrigger", "250") \
+    .option("startingOffsets", "latest") \
+    .option("maxOffsetsPerTrigger", "50") \
     .load()
 
 df_parsed = kafka_stream.select(from_json(col("value").cast("string"), esquema_sensor).alias("data")).select("data.*")
@@ -160,7 +160,7 @@ def process_medallion_batch(batch_df, batch_id):
                 # Nueva Logica: Estado INACTIVO tiene prioridad
                 condiciones = [
                     pdf['maquina_inactiva'] == True,
-                    pdf['probabilidad_falla'] >= 0.85,
+                    pdf['probabilidad_falla'] >= 0.95,
                     pdf['probabilidad_falla'] >= 0.40
                 ]
                 opciones = ['INACTIVO', 'CRITICO: PARADA', 'RIESGO: REVISAR']
