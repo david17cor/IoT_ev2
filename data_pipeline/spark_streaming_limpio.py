@@ -166,10 +166,10 @@ def process_medallion_batch(batch_df, batch_id):
                 opciones = ['INACTIVO', 'CRITICO: PARADA', 'RIESGO: REVISAR']
                 pdf['estado_maquina'] = np.select(condiciones, opciones, default='NORMAL')
                 
+                # Seleccionamos SOLO las columnas que la base de datos ya conoce y acepta
                 pdf_dashboard = pdf[[
                     'timestamp_lectura', 'id_maquina', 'delta_temp', 'delta_vibracion', 
-                    'delta_corriente', 'estado_maquina', 'probabilidad_falla_pct',
-                    'temp_actual', 'vibracion_actual', 'corriente_actual'
+                    'delta_corriente', 'estado_maquina', 'probabilidad_falla_pct'
                 ]]
                 
                 df_dashboard_spark = spark.createDataFrame(pdf_dashboard)

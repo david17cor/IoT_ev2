@@ -61,7 +61,7 @@ if vista_actual == "Monitor en Tiempo Real":
     <script>
     async function updateDashboard() {
         try {
-            const res = await (await fetch("http://localhost:8000/api/dashboard-tiempo-real")).json();
+            const res = await (await fetch(`http://${window.location.hostname}:8000/api/dashboard-tiempo-real`)).json();
             if (!res.success) return;
             const maquinas = {};
             res.data.forEach(reg => maquinas[reg.id_maquina] = reg);
