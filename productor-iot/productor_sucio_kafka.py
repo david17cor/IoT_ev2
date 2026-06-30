@@ -66,20 +66,20 @@ def generar_datos_streaming():
                 es_falla = False
             else:
                 # 1. Inercia de RPM
-                estado["rpm"] += random.uniform(-5.0, 5.0)
-                estado["rpm"] = max(1400.0, min(estado["rpm"], 1500.0))
+                estado["rpm"] += random.uniform(-5.0, 8.0)
+                estado["rpm"] = max(1400.0, min(estado["rpm"], 1750.0))
                 
-                # 2. Desgaste progresivo con tope en 85
+                # 2. Desgaste progresivo con tope en 95
                 estado["desgaste_interno"] += random.uniform(0.15, 0.40)
-                estado["desgaste_interno"] = min(estado["desgaste_interno"], 85.0)
+                estado["desgaste_interno"] = min(estado["desgaste_interno"], 95.0)
                 desgaste = estado["desgaste_interno"]
                 
                 if desgaste < 40: factor_desgaste = 0.10
                 elif desgaste < 70: factor_desgaste = 0.15
-                else: factor_desgaste = 0.25
+                else: factor_desgaste = 0.35
                     
                 # Logica del Estado Inactivo (4 minutos en 85 de desgaste)
-                if desgaste >= 85.0:
+                if desgaste >= 95.0:
                     if estado["tiempo_critico_inicio"] is None:
                         estado["tiempo_critico_inicio"] = time.time()
                         print(f"ADVERTENCIA: {id_maquina} alcanzo limite critico. Iniciando cuenta regresiva de 3 minutos.", flush=True)
@@ -92,7 +92,7 @@ def generar_datos_streaming():
                 # 3. Fisica Multivariable Observada
                 rpm = estado["rpm"]
                 vibracion = 2.5 + ((rpm - 1400) * 0.005) + (desgaste * (factor_desgaste * 0.7)) + random.uniform(-0.2, 0.2)
-                temp = 34.0 + (vibracion * 1.5) + random.uniform(-0.5, 0.5)
+                temp = 60.0 + (vibracion * 1.5) + random.uniform(-0.5, 0.5)
                 corriente = 7.5 + (vibracion * 0.3) + (desgaste * 0.05) + random.uniform(-0.2, 0.2)
                 
                 # 4. Falla Probabilistica (Removida regeneracion automatica)
@@ -107,8 +107,8 @@ def generar_datos_streaming():
                     
                 # 5. Anomalias de Sensores
                 if random.random() < 0.005:
-                    temp_final = random.choice([95.0, 0.0])
-                    vibr_final = random.choice([25.0, 0.0])
+                    temp_final = random.choice([160, -10.0])
+                    vibr_final = random.choice([50.0, -5.0])
                 else:
                     temp_final = temp
                     vibr_final = vibracion
