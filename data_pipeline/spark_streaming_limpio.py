@@ -168,7 +168,8 @@ def process_medallion_batch(batch_df, batch_id):
                 
                 # Seleccionamos SOLO las columnas que la base de datos ya conoce y acepta
                 pdf_dashboard = pdf[[
-                    'timestamp_lectura', 'id_maquina', 'delta_temp', 'delta_vibracion', 
+                    'timestamp_lectura', 'id_maquina', 'temp_actual', 'vibracion_actual', 
+                    'corriente_actual', 'delta_temp', 'delta_vibracion', 
                     'delta_corriente', 'estado_maquina', 'probabilidad_falla_pct'
                 ]]
                 
@@ -176,7 +177,7 @@ def process_medallion_batch(batch_df, batch_id):
                 df_dashboard_spark.write.format("jdbc").option("url", JDBC_URL) \
                     .option("dbtable", "dashboard_tiempo_real").option("user", DB_USER) \
                     .option("password", DB_PASSWORD).option("driver", "org.postgresql.Driver") \
-                    .mode("append").save()
+                    .mode("overwrite").save()
                 
                 print(f"Data Mart guardado en BD (Dashboard). Predicciones y Telemetria actualizadas.", flush=True)
                 
