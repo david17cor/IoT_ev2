@@ -155,7 +155,7 @@ def process_medallion_batch(batch_df, batch_id):
                 pdf['vibracion_actual'] = pdf['vibracion_mms'].round(2)
                 pdf['corriente_actual'] = pdf['corriente_motor_a'].round(2)
                 
-                pdf['probabilidad_falla_pct'] = (pdf['probabilidad_falla'] * 100).round(1).astype(str) + "%"
+                pdf['probabilidad_falla_pct'] = (pdf['probabilidad_falla'] * 100).round(0).astype(int)
                 
                 # Nueva Logica: Estado INACTIVO tiene prioridad
                 condiciones = [
@@ -165,6 +165,8 @@ def process_medallion_batch(batch_df, batch_id):
                 ]
                 opciones = ['INACTIVO', 'CRITICO: PARADA', 'RIESGO: REVISAR']
                 pdf['estado_maquina'] = np.select(condiciones, opciones, default='NORMAL')
+
+                pdf.loc[pdf['estado_maquina'] == 'INACTIVO', 'probabilidad_falla_pct'] = 100
                 
                 # Seleccionamos SOLO las columnas que la base de datos ya conoce y acepta
                 pdf_dashboard = pdf[[
@@ -177,6 +179,7 @@ def process_medallion_batch(batch_df, batch_id):
                 df_dashboard_spark.write.format("jdbc").option("url", JDBC_URL) \
                     .option("dbtable", "dashboard_tiempo_real").option("user", DB_USER) \
                     .option("password", DB_PASSWORD).option("driver", "org.postgresql.Driver") \
+                    .option("truncate", "true") \
                     .mode("overwrite").save()
                 
                 print(f"Data Mart guardado en BD (Dashboard). Predicciones y Telemetria actualizadas.", flush=True)
