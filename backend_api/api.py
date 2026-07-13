@@ -175,10 +175,12 @@ def obtener_dashboard_predictivo():
             SELECT DISTINCT ON (id_maquina) 
                 id_maquina, 
                 estado_maquina, 
-                temp_actual, 
-                vibracion_actual, 
-                corriente_actual, 
+                0.0 AS temp_actual, 
+                0.0 AS vibracion_actual, 
+                0.0 AS corriente_actual, 
                 delta_temp, 
+                delta_vibracion,
+                delta_corriente,
                 probabilidad_falla_pct, 
                 timestamp_lectura 
             FROM dashboard_tiempo_real 
