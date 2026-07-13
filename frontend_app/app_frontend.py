@@ -71,7 +71,7 @@ if vista_actual == "Monitor en Tiempo Real":
 
         try {
             console.time("api_fetch");
-            const response = await fetch("http://34.176.77.168:8000/api/dashboard-tiempo-real");
+            const response = await fetch("http://34.176.110.175:8000/api/dashboard-tiempo-real");
             
             if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
             
