@@ -15,9 +15,10 @@ from pyspark.sql.functions import (
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, BooleanType
 
 print("========================================================", flush=True)
-print("ARRANCANDO PROCESO DE PIPELINE + TARGET ML V3.0", flush=True)
+print("ARRANCANDO PROCESO DE PIPELINE + TARGET ML V3.0 (FIXED)", flush=True)
 print("========================================================", flush=True)
 
+# 1. Configuración de variables de entorno
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
 DB_HOST = os.getenv("DB_HOST", "postgres") 
@@ -29,11 +30,15 @@ MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "admin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "password123")
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://minio-datalake:9000")
 
+# 2. Carga del Modelo ML
 print("Cargando modelo predictivo (Random Forest)...", flush=True)
 ruta_modelo = os.path.join("/app", "modelo_cnc.pkl")
 modelo_rf = joblib.load(ruta_modelo)
+
+# Diccionario global para calcular los deltas (estado en memoria)
 ultimo_estado_maquinas = {}
 
+# 3. Inicialización de Spark Streaming
 print("Inicializando JVM de Spark y descargando Jars...", flush=True)
 spark = SparkSession.builder \
     .appName("DataOps_IoT_Streaming_Medallion_ML") \
@@ -52,6 +57,7 @@ spark = SparkSession.builder \
 spark.sparkContext.setLogLevel("WARN")
 print("Motor PySpark inicializado correctamente.", flush=True)
 
+# 4. Esquema de Ingesta (Kafka)
 esquema_sensor = StructType([
     StructField("timestamp_lectura", StringType(), True),
     StructField("id_maquina", StringType(), True),
@@ -77,23 +83,27 @@ kafka_stream = spark.readStream \
 
 df_parsed = kafka_stream.select(from_json(col("value").cast("string"), esquema_sensor).alias("data")).select("data.*")
 
+# 5. Función de Procesamiento por Micro-lote (Medallion Architecture)
 def process_medallion_batch(batch_df, batch_id):
     global ultimo_estado_maquinas
-    print(f"\n [Batch {batch_id}] Iniciando procesamiento de micro-lote...", flush=True)
+    print(f"\n[Batch {batch_id}] Iniciando procesamiento de micro-lote...", flush=True)
+    
     batch_df.cache()
     total_crudos = batch_df.count()
     
     if total_crudos > 0:
+        # --- CAPA BRONCE (Datalake - MinIO) ---
         try:
             df_bronze = batch_df.withColumn("ingest_timestamp", current_timestamp())
             df_bronze.write \
                 .format("parquet") \
                 .mode("append") \
                 .save("s3a://s3bronze/telemetria_raw/")
-            print(f"Bronce guardada ({total_crudos} crudos).", flush=True)
+            print(f"-> Bronce guardada ({total_crudos} crudos).", flush=True)
         except Exception as e:
             print(f"ERROR CRITICO BRONCE: {e}", flush=True)
             
+        # --- LIMPIEZA DE DATOS ---
         df_clean = batch_df \
             .withColumn("timestamp_lectura", to_timestamp(col("timestamp_lectura"), "yyyy-MM-dd HH:mm:ss")) \
             .withColumn("id_maquina", lower(col("id_maquina"))) \
@@ -108,12 +118,14 @@ def process_medallion_batch(batch_df, batch_id):
         
         if registros_validos > 0:
             try:
+                # --- CAPA PLATA (Data Warehouse - PostgreSQL) ---
                 df_plata_final.write.format("jdbc").option("url", JDBC_URL) \
                     .option("dbtable", "telemetria_limpia").option("user", DB_USER) \
                     .option("password", DB_PASSWORD).option("driver", "org.postgresql.Driver") \
                     .mode("append").save()
-                print(f"Plata guardada en BD ({registros_validos} limpios).", flush=True)
+                print(f"-> Plata guardada en BD ({registros_validos} limpios).", flush=True)
                 
+                # --- INFERENCIA ML Y CÁLCULO DE DELTAS (Data Mart) ---
                 pdf = df_plata_final.toPandas()
                 pdf = pdf.sort_values(by=['id_maquina', 'timestamp_lectura'])
                 
@@ -138,26 +150,16 @@ def process_medallion_batch(batch_df, batch_id):
                         'corriente': row['corriente_motor_a']
                     }
                     
-                pdf['delta_temp'] = deltas_temp
-                pdf['delta_vibracion'] = deltas_vibracion
-                pdf['delta_corriente'] = deltas_corriente
+                pdf['delta_temp'] = np.round(deltas_temp, 2)
+                pdf['delta_vibracion'] = np.round(deltas_vibracion, 2)
+                pdf['delta_corriente'] = np.round(deltas_corriente, 2)
                 
                 features = ['rpm', 'vibracion_mms', 'temp_c', 'corriente_motor_a', 'delta_temp', 'delta_vibracion', 'delta_corriente']
                 y_prob = modelo_rf.predict_proba(pdf[features])[:, 1]
                 
                 pdf['probabilidad_falla'] = y_prob.astype(float)
                 
-                pdf['delta_temp'] = pdf['delta_temp'].round(2)
-                pdf['delta_vibracion'] = pdf['delta_vibracion'].round(2)
-                pdf['delta_corriente'] = pdf['delta_corriente'].round(2)
-                
-                pdf['temp_actual'] = pdf['temp_c'].round(2)
-                pdf['vibracion_actual'] = pdf['vibracion_mms'].round(2)
-                pdf['corriente_actual'] = pdf['corriente_motor_a'].round(2)
-                
-                pdf['probabilidad_falla_pct'] = (pdf['probabilidad_falla'] * 100).round(0).astype(int)
-                
-                # Nueva Logica: Estado INACTIVO tiene prioridad
+                # Reglas de Negocio para Dashboard
                 condiciones = [
                     pdf['maquina_inactiva'] == True,
                     pdf['probabilidad_falla'] >= 0.95,
@@ -165,24 +167,33 @@ def process_medallion_batch(batch_df, batch_id):
                 ]
                 opciones = ['INACTIVO', 'CRITICO: PARADA', 'RIESGO: REVISAR']
                 pdf['estado_maquina'] = np.select(condiciones, opciones, default='NORMAL')
-
-                pdf.loc[pdf['estado_maquina'] == 'INACTIVO', 'probabilidad_falla_pct'] = 100
                 
-                # Seleccionamos SOLO las columnas que la base de datos ya conoce y acepta
+                # Castear porcentaje a String para igualar el esquema de destino en la BD
+                pdf.loc[pdf['estado_maquina'] == 'INACTIVO', 'probabilidad_falla'] = 1.0
+                pdf['probabilidad_falla_pct'] = (pdf['probabilidad_falla'] * 100).round(0).astype(int).astype(str)
+                
+                # --- CAPA ORO: FILTRO ESTRICTO DEL ESQUEMA DESTINO ---
+                # Se seleccionan SOLO las 7 columnas que la tabla destino requiere.
                 pdf_dashboard = pdf[[
-                    'timestamp_lectura', 'id_maquina', 'temp_actual', 'vibracion_actual', 
-                    'corriente_actual', 'delta_temp', 'delta_vibracion', 
-                    'delta_corriente', 'estado_maquina', 'probabilidad_falla_pct'
+                    'timestamp_lectura', 
+                    'id_maquina', 
+                    'delta_temp', 
+                    'delta_vibracion', 
+                    'delta_corriente', 
+                    'estado_maquina', 
+                    'probabilidad_falla_pct'
                 ]]
                 
                 df_dashboard_spark = spark.createDataFrame(pdf_dashboard)
+                
+                # Escritura al Dashboard (Overwrite)
                 df_dashboard_spark.write.format("jdbc").option("url", JDBC_URL) \
                     .option("dbtable", "dashboard_tiempo_real").option("user", DB_USER) \
                     .option("password", DB_PASSWORD).option("driver", "org.postgresql.Driver") \
                     .option("truncate", "true") \
                     .mode("overwrite").save()
                 
-                print(f"Data Mart guardado en BD (Dashboard). Predicciones y Telemetria actualizadas.", flush=True)
+                print(f"-> Data Mart (Dashboard) sobrescrito con éxito. Máquinas procesadas.", flush=True)
                 
             except Exception as e:
                 print(f"ERROR CRITICO PLATA/ORO: {e}", flush=True)
@@ -193,6 +204,7 @@ def process_medallion_batch(batch_df, batch_id):
             
     batch_df.unpersist()
 
+# 6. Arranque de la Tubería
 print("Lanzando la consulta de streaming activo...", flush=True)
 query = df_parsed.writeStream \
     .foreachBatch(process_medallion_batch) \
